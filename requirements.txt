@@ -1,0 +1,3 @@
+# WSI Thumbnail Review - Python 3.8+ with tkinter (included in the python.org installer).
+#   python -m pip install -r requirements.txt
+pillow>=9.0
