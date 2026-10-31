@@ -55,6 +55,7 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 
+__version__ = "1.0.1"
 MIN_PYTHON = (3, 8)
 
 
@@ -151,7 +152,7 @@ LOG_FILE = os.path.join(app_dir(), "wsi_review.log")
 
 BANNER_KO = """\
 ============================================================
-  WSI 썸네일 리뷰 / 정리 도구  (WSI_Review)
+  WSI 썸네일 리뷰 / 정리 도구  (WSI_Review v{ver})
 ============================================================
   이 검은 창은 프로그램의 '기록 창'입니다. 정상입니다.
   썸네일 추출 진행 상황과 오류, 파일 이동 내역이 여기에
@@ -187,7 +188,7 @@ BANNER_KO = """\
 
 BANNER_EN = """\
 ============================================================
-  WSI Thumbnail Review / Cleanup  (WSI_Review)
+  WSI Thumbnail Review / Cleanup  (WSI_Review v{ver})
 ============================================================
   This black window is the program's LOG WINDOW. It is normal.
   Thumbnail progress, errors and every file move are recorded
@@ -526,7 +527,7 @@ class Slide:
 class App(tk.Tk):
     def __init__(self, src, dst):
         super().__init__()
-        self.title(t("app_title"))
+        self.title(f"{t('app_title')}  v{__version__}")
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{int(sw * 0.9)}x{int(sh * 0.85)}+{int(sw * 0.05)}+{int(sh * 0.05)}")
         self.src = src
@@ -593,7 +594,7 @@ class App(tk.Tk):
         i18n.set_lang(code)
         for w in self.winfo_children():
             w.destroy()
-        self.title(t("app_title"))
+        self.title(f"{t('app_title')}  v{__version__}")
         self._build_ui()
         self.src_var.set(keep["src"]);  self.dst_var.set(keep["dst"])
         self.sort_var.set(t(keep["sort"]))          # same sort, label in the new language
@@ -1714,8 +1715,8 @@ def main():
                 os.system("mode con: cols=100 lines=3000 >nul 2>&1")
             except Exception:  # noqa
                 pass
-        print(banner().format(log=LOG_FILE), flush=True)
-    log.info("=== WSI Thumbnail Review started (log file: %s) ===", LOG_FILE)
+        print(banner().format(log=LOG_FILE, ver=__version__), flush=True)
+    log.info("=== WSI Thumbnail Review v%s started (log file: %s) ===", __version__, LOG_FILE)
     if len(sys.argv) > 1 and sys.argv[1] == "--check":
         folder = sys.argv[2] if len(sys.argv) > 2 else os.path.join(app_dir(), "WSI_example")
         check_folder(folder)

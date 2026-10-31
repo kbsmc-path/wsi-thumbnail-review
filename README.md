@@ -99,7 +99,7 @@ SVS 파일에 들어 있는 작은 썸네일만 읽어 수백 장의 슬라이�
 
 ```bat
 python -m pip install pyinstaller pillow
-python build_exe.py            :: -> exe\WSI_Review.exe
+python build_exe.py            :: -> exe\WSI_Review_v<version>.exe
 ```
 
 Built as PyInstaller *onefile + console*: Windows Smart App Control blocks the unsigned windowed bootloader, and the
