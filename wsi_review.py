@@ -544,6 +544,7 @@ class App(tk.Tk):
         self.pinned = None
         self.undo_stack = []
         self.busy = False
+        self.ready_msg = None      # the status line shown when loading finished (restored on deselect)
         self._render_job = None
         self.q = queue.Queue()
         self.cols = 1
@@ -835,6 +836,7 @@ class App(tk.Tk):
         self._apply_view(keep_focus=False)
         self.canvas.yview_moveto(0)
         self.loaded = 0
+        self.ready_msg = None
         self.status.set(t("scanning", n=len(self.all_slides)))
         threading.Thread(target=self._loader, args=(list(self.all_slides), self.src), daemon=True).start()
 
@@ -896,13 +898,16 @@ class App(tk.Tk):
         self._update_preview()
         self._update_count()
 
-    def _loader(self, slides, src):
+    def _loader(self, slides, src, quiet=False):
+        """Load thumbnails for `slides`. `quiet` skips the plan/done status messages (used when a few
+        slides are put back into an already loaded grid, e.g. after an undo)."""
         t0 = time.time()
         cached = [s for s in slides if is_cached(src, s.path)]
         missing = [s for s in slides if s not in cached]
         log.info("thumbnails: %d cached, %d to extract (cache dir: %s)", len(cached), len(missing),
                  os.path.join(src, CACHE_DIR))
-        self.q.put(("plan", len(cached), len(missing)))
+        if not quiet:
+            self.q.put(("plan", len(cached), len(missing)))
         errors = []
 
         def work(s):
@@ -928,7 +933,8 @@ class App(tk.Tk):
                  len(missing) - len(errors), len(errors))
         if errors:
             log.warning("files without thumbnail:\n  " + "\n  ".join(errors))
-        self.q.put(("done", dt, len(cached), len(missing)))
+        if not quiet:
+            self.q.put(("done", dt, len(cached), len(missing)))
 
     def _poll_queue(self):
         got_thumbs = False
@@ -943,7 +949,8 @@ class App(tk.Tk):
                     msg = t("ready", n=len(self.all_slides), sec=item[1],
                             cached=item[2], fresh=item[3] - errs)
                     msg += t("ready_err", errs=errs) if errs else ")"
-                    self.status.set(msg + t("ready_hint"))
+                    self.ready_msg = msg + t("ready_hint")
+                    self.status.set(self.ready_msg)
                     self._apply_view()
                 elif kind == "thumb":
                     _, s, thumb, mid, err = item
@@ -960,11 +967,11 @@ class App(tk.Tk):
                     if self.focus_idx is not None and self.slides[self.focus_idx] is s:
                         self._update_preview()
                 elif kind == "moved":
-                    self._on_move_done(item[1], item[2])
+                    self._on_move_done(item[1], item[2], item[3])
                 elif kind == "renamed":
                     self._on_rename_done(item[1], item[2])
                 elif kind == "undone":
-                    self._on_undo_done(item[1], item[2])
+                    self._on_undo_done(item[1], item[2], item[3])
         except queue.Empty:
             pass
         except tk.TclError:          # window closed while loading
@@ -978,13 +985,40 @@ class App(tk.Tk):
 
     # ---------------- grid (canvas) ----------------
     def _build_items(self):
-        c = self.canvas
         for s in self.all_slides:
-            s.rect = c.create_rectangle(0, 0, 1, 1, fill=CELL_BG, outline=BG, width=3)
-            s.img = c.create_image(0, 0, anchor="n")
-            s.txt = c.create_text(0, 0, anchor="nw", fill="#ddd", font=("Segoe UI", 9), width=self.thumb_w)
-            s.tk_small = None
-            s.rendered_w = 0
+            self._make_items(s)
+
+    def _make_items(self, s):
+        c = self.canvas
+        s.rect = c.create_rectangle(0, 0, 1, 1, fill=CELL_BG, outline=BG, width=3)
+        s.img = c.create_image(0, 0, anchor="n")
+        s.txt = c.create_text(0, 0, anchor="nw", fill="#ddd", font=("Segoe UI", 9), width=self.thumb_w)
+        s.err_txt = None
+        s.tk_small = None
+        s.rendered_w = 0
+
+    def _insert_slides(self, slides):
+        """Put Slide objects back into the grid (after an undo or a failed move) without rescanning the
+        folder: thumbnails already in memory are kept, the scroll position stays where the user was, and
+        the first restored slide gets the focus so it is visible. Returns the slides actually inserted."""
+        added = []
+        for s in slides:
+            if s in self.all_slides or not os.path.exists(s.path):
+                continue
+            self._make_items(s)
+            s.selected = False
+            self.all_slides.append(s)
+            added.append(s)
+        self._apply_view()
+        shown = [s for s in added if s in self.slides]
+        if shown:
+            idx = min(self.slides.index(s) for s in shown)
+            self._set_focus(idx)
+            self._scroll_to(idx)
+        need = [s for s in added if s.thumb is None and not s.error]
+        if need:                        # thumbnail was never loaded (moved while still loading)
+            threading.Thread(target=self._loader, args=(need, self.src, True), daemon=True).start()
+        return added
 
     def _layout_error_text(self, s):
         if s not in self.slides:
@@ -1236,6 +1270,10 @@ class App(tk.Tk):
 
     def _update_status_count(self):
         n = sum(s.selected for s in self.all_slides)
+        if n == 0:                      # nothing selected any more -> show the initial guidance again
+            self.status.set(self.ready_msg or (t("sel_count", n=0, total=len(self.all_slides))
+                                               + t("ready_hint")))
+            return
         hidden_sel = sum(1 for s in self.all_slides if s.selected and not s.visible)
         msg = t("sel_count", n=n, total=len(self.all_slides))
         if hidden_sel:
@@ -1485,7 +1523,7 @@ class App(tk.Tk):
         threading.Thread(target=self._move_worker, args=(sel, dst), daemon=True).start()
 
     def _move_worker(self, sel, dst):
-        moved, errors = [], []
+        moved, errors, failed = [], [], []
         log_path = os.path.join(dst, "move_log.csv")
         new_log = not os.path.exists(log_path)
         with open(log_path, "a", newline="", encoding="utf-8") as fh:
@@ -1506,19 +1544,20 @@ class App(tk.Tk):
                 except Exception as e:  # noqa
                     log.error("  MOVE FAILED %s: %s", s.name, e)
                     errors.append(f"{s.name}: {e}")
+                    failed.append(s)
                     continue
                 wr.writerow([time.strftime("%Y-%m-%d %H:%M:%S"), "move", s.path, target])
                 moved.append((s, s.path, target))
-        self.q.put(("moved", moved, errors))
+        self.q.put(("moved", moved, errors, failed))
 
-    def _on_move_done(self, moved, errors):
+    def _on_move_done(self, moved, errors, failed):
         self.busy = False
         if moved:
             self.undo_stack.append(("move", moved))
+        if failed:                      # the files are still in the source folder - show them again
+            self._insert_slides(failed)
         if errors:
-            messagebox.showerror(t("move_failed"), "\n".join(errors[:10]))
-            self.rescan()
-            return
+            messagebox.showerror(t("move_failed"), "\n".join(errors[:10]), parent=self)
         self.status.set(t("moved", n=len(moved), left=len(self.slides)))
 
     def undo(self):
@@ -1538,7 +1577,7 @@ class App(tk.Tk):
     def _undo_worker(self, kind, batch):
         dst = os.path.dirname(batch[0][2])
         log_path = os.path.join(dst, "rename_log.csv" if kind == "rename" else "move_log.csv")
-        restored, errors = 0, []
+        restored, errors = [], []
         with open(log_path, "a", newline="", encoding="utf-8") as fh:
             wr = csv.writer(fh)
             for s, orig, target in batch:
@@ -1554,20 +1593,29 @@ class App(tk.Tk):
                         s.path, s.name = orig, os.path.basename(orig)
                     else:
                         shutil.move(target, orig)
+                        s.path, s.name = orig, os.path.basename(orig)
                     log.info("  restored %-50s -> %s", os.path.basename(target), orig)
                     wr.writerow([time.strftime("%Y-%m-%d %H:%M:%S"), "undo", target, orig])
-                    restored += 1
+                    restored.append(s)
                 except Exception as e:  # noqa
                     log.error("  UNDO FAILED %s: %s", os.path.basename(target), e)
                     errors.append(f"{os.path.basename(target)}: {e}")
-        self.q.put(("undone", restored, errors))
+        self.q.put(("undone", kind, restored, errors))
 
-    def _on_undo_done(self, restored, errors):
+    def _on_undo_done(self, kind, restored, errors):
         self.busy = False
         if errors:
             messagebox.showerror(t("undo_failed"), "\n".join(errors[:10]), parent=self)
-        self.rescan()
-        self.status.set(t("undo_done", n=restored))
+        same_folder = all(os.path.normcase(os.path.dirname(s.path)) == os.path.normcase(self.src)
+                          for s in restored)
+        if not same_folder:             # the source folder changed since the move - start over
+            self.rescan()
+        elif kind == "move":
+            self._insert_slides(restored)   # back into the grid: no rescan, no thumbnail reload
+        else:                           # rename: names changed, re-sort and relabel in place
+            self._apply_view()
+            self._style_all()
+        self.status.set(t("undo_done", n=len(restored)) + t("ready_hint"))
 
 
 class GroupDialog(tk.Toplevel):
