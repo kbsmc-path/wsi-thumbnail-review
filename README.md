@@ -21,15 +21,26 @@ multi-GB slides appear in about a second, and the thumbnails are cached for inst
   so they sort together; logged to `rename_log.csv` and undoable.
 - **Korean / English** user interface (switch any time from the toolbar).
 
-## Download (Windows, no Python needed)
+## Install and run
 
-Download `WSI_Review.exe` from the [Releases](https://github.com/kbsmc-path/wsi-thumbnail-review/releases) page and
-double-click it (or drop a folder onto it). A console window opens alongside — it is the log window; close the review
-window to exit.
+Requires **Python 3.8+** with tkinter (included in the python.org installer) and **Pillow**. The program is
+distributed as source only — there is no `.exe` download (see [Build your own .exe](#build-your-own-exe-optional)
+for why).
 
-## Run from source
+**Windows, without git**
 
-Requires **Python 3.8+** with tkinter (included in the python.org installer) and **Pillow**.
+1. Install Python 3.8+ from [python.org](https://www.python.org/downloads/).
+2. On this page: **Code › Download ZIP**.
+3. Right-click the ZIP › **Properties** › at the bottom tick **Unblock** › **OK** — *before* extracting
+   (see [If Windows blocks it](#if-windows-blocks-it-smart-app-control)).
+4. Extract the ZIP and double-click `run.bat` (or drag a folder onto it). The first run installs Pillow
+   (`python -m pip`); later runs start immediately. A console window opens alongside — it is the log window; close
+   the review window to exit.
+
+Keep all files in one folder (`wsi_review.py` needs `i18n.py`). `run.bat` uses `.venv` if present, otherwise the
+`python` on PATH or the `py` launcher.
+
+**With git, or on Linux / macOS**
 
 ```bat
 git clone https://github.com/kbsmc-path/wsi-thumbnail-review.git
@@ -37,9 +48,6 @@ cd wsi-thumbnail-review
 python -m pip install -r requirements.txt
 python wsi_review.py
 ```
-
-On Windows you can also double-click `run.bat` (uses `.venv` if present) or drag a folder onto it.
-Without git: **Code › Download ZIP** and keep all files in one folder (`wsi_review.py` needs `i18n.py`).
 
 If something is missing, the program says what and how to install it instead of crashing, for example:
 
@@ -56,6 +64,16 @@ If something is missing, the program says what and how to install it instead of 
 | tkinter (macOS Homebrew) | `brew install python-tk` |
 | `ImageTk` (Linux distro Pillow) | `sudo apt install python3-pil.imagetk` |
 | `i18n.py` | download the whole repository, not just `wsi_review.py` |
+
+## If Windows blocks it (Smart App Control)
+
+On Windows 11 with **Smart App Control** turned on, files downloaded from the internet are marked, and a marked
+`run.bat` is refused with *"Smart App Control blocked …"* / *"Dangerous file extension from the web"*. Unblocking the
+ZIP before extracting it (step 3 above) removes the mark from everything inside.
+
+Already extracted without unblocking? Right-click `run.bat` › Properties › tick **Unblock**, or in PowerShell in that
+folder: `Get-ChildItem | Unblock-File`.
+Use `python -m pip …`, not `pip …`: Smart App Control can also block the unsigned `pip.exe` launcher.
 
 ## Usage
 
@@ -87,23 +105,33 @@ Notes
 SVS 파일에 들어 있는 작은 썸네일만 읽어 수백 장의 슬라이드를 빠르게 훑어보고, 중복되거나 정렬이 맞지 않는
 연속절편을 다른 폴더로 옮기거나(Ctrl+Z로 취소), H&E–면역염색 짝을 그룹으로 묶는 도구입니다.
 
-- **exe로 실행**: [Releases](https://github.com/kbsmc-path/wsi-thumbnail-review/releases)에서 `WSI_Review.exe`를 받아 더블클릭
-  (Python 설치 불필요). 함께 뜨는 검은 창은 기록 창입니다.
-- **소스로 실행**: Python 3.8 이상 설치 후 이 폴더에서
-  `python -m pip install -r requirements.txt` → `python wsi_review.py` (또는 `run.bat` 더블클릭).
+- **설치와 실행** (Windows): exe 파일은 배포하지 않고 소스로만 제공합니다.
+  1. [python.org](https://www.python.org/downloads/)에서 Python 3.8 이상 설치
+  2. 이 페이지에서 **Code › Download ZIP**으로 받기
+  3. **압축을 풀기 전에** ZIP 우클릭 › **속성** › 아래쪽 **차단 해제** 체크 › **확인**
+  4. 압축을 풀고 `run.bat` 더블클릭 (처음 한 번은 Pillow를 자동 설치하고, 다음부터는 바로 실행).
+     함께 뜨는 검은 창은 기록 창입니다.
+
+  직접 실행하려면 이 폴더에서 `python -m pip install -r requirements.txt` → `python wsi_review.py`.
   필요한 모듈이 없으면 무엇을 어떻게 설치해야 하는지 안내 창이 뜹니다.
+- **"스마트 앱 컨트롤이 차단했습니다"가 뜰 때** (Windows 11): 인터넷에서 받은 파일이라 `run.bat`이 막힌 것입니다.
+  3번(차단 해제)을 건너뛰고 압축을 풀었다면 `run.bat`만 우클릭 › 속성 › 차단 해제 하면 됩니다.
+  `pip` 대신 항상 `python -m pip`를 쓰세요 (`pip.exe`도 차단될 수 있습니다).
 - 사용 순서: 원본 폴더 지정 → [다시 스캔] → Ctrl+클릭으로 선택 → Enter로 이동 (Ctrl+Z 취소) → 필요하면 G로 그룹 지정.
   단축키는 위 Usage 표를 참고하세요.
 
-## Build the .exe
+## Build your own .exe (optional)
+
+No `.exe` is published: it would not be code-signed, and Windows Smart App Control blocks unsigned executables it does not know
+(whether built as console or windowed) with no way for the user to allow them. For PCs where Smart App Control is
+off, you can build one yourself:
 
 ```bat
 python -m pip install pyinstaller pillow
 python build_exe.py            :: -> exe\WSI_Review_v<version>.exe
 ```
 
-Built as PyInstaller *onefile + console*: Windows Smart App Control blocks the unsigned windowed bootloader, and the
-console doubles as the log window.
+Built as PyInstaller *onefile + console*; the console doubles as the log window.
 
 ## License
 

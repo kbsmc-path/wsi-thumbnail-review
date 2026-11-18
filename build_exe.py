@@ -3,9 +3,9 @@ Build a standalone Windows .exe of the WSI thumbnail review tool (wsi_review.py)
 
 The Python sources are left untouched - this only produces exe\\WSI_Review_v<version>.exe (version
 taken from __version__ in wsi_review.py, also embedded as the exe's file-version resource), which runs
-without Python. Console mode on purpose: Windows Smart App Control blocks PyInstaller's *windowed*
-bootloader as an unsigned, unknown binary, while the console one is let through. The console
-window also shows the log.
+without Python. Console mode on purpose: the console window shows the log. The exe is not
+code-signed, so Windows Smart App Control can block it whether it is built as console or windowed;
+on such PCs run from source instead (README: "If Windows blocks it").
 
 Usage:
     python -m pip install pyinstaller pillow
