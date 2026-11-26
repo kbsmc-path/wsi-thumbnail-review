@@ -37,7 +37,13 @@ Keys:
                     the cached thumbnails and the slide files are never changed
     0               reset preview zoom
     G               group the selected files (block rename, e.g. A -> A_1)
-    F1 or ?         list of all shortcuts
+    R               flag the selected slides (else the focused one) as 'needs registration later'
+                    - press again to unflag; saved at once to <source>/review_flags.csv
+    Shift+R         the same with a note (rotate 180, flip...)
+    Ctrl+R          show only flagged slides and their pair partners (same accession + block)
+    Ctrl+E          export slides / excluded (from move_log.csv) / registration / renames
+                    to <source>/review_export_<time>.xlsx + one CSV per sheet
+    F1 or ?         list of all shortcuts
     One-key shortcuts (M, P, G, Enter, Space, arrows, ...) are off while the cursor is in a
     text box (folder paths, find box); Esc or a click on the grid turns them back on.
 
@@ -114,6 +120,13 @@ try:
 except ImportError:
     _missing("i18n.py was not found next to wsi_review.py.\n"
              "wsi_review.py 와 같은 폴더에 i18n.py 가 없습니다.",
+             "Download the whole repository (GitHub: Code > Download ZIP) and keep all files together.\n"
+             "저장소 전체를 받아서(GitHub: Code > Download ZIP) 파일들을 한 폴더에 두세요.")
+try:
+    import review_records as rr
+except ImportError:
+    _missing("review_records.py was not found next to wsi_review.py.\n"
+             "wsi_review.py 와 같은 폴더에 review_records.py 가 없습니다.",
              "Download the whole repository (GitHub: Code > Download ZIP) and keep all files together.\n"
              "저장소 전체를 받아서(GitHub: Code > Download ZIP) 파일들을 한 폴더에 두세요.")
 
@@ -256,6 +269,7 @@ BG = "#202020"
 CELL_BG = "#2c2c2c"
 COLOR_SELECTED = "#e03030"
 COLOR_FOCUS = "#3080ff"
+COLOR_REG = "#ff9f1a"   # registration-flag badge (distinct from the red selection / blue focus)
 TEXT_H = 34             # space reserved under each thumbnail for the file name (2 lines)
 PAD = 8                 # gap between cells
 
@@ -716,6 +730,7 @@ class App(tk.Tk):
         self._folder_job = None
         self._dst_bad = True       # cached 'Move to' check for the button colour
         self._help = None
+        self._init_review_records()
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._poll_job = self.after(100, self._poll_queue)
@@ -1039,6 +1054,7 @@ class App(tk.Tk):
         self.bind("<F1>", lambda e: self._show_help())
         self.bind("<Control-f>", lambda e: (self.filter_entry.focus_set(),
                                             self.filter_entry.select_range(0, "end"), "break")[-1])
+        self._build_review_records_ui(self.action_slot)   # Registration menu + Export button, keys R / Ctrl+E
         self._refresh_folder_state()
 
     @staticmethod
@@ -1228,6 +1244,7 @@ class App(tk.Tk):
     def rescan(self, silent=False):
         """Scan the source folder. `silent` suppresses the 'not found' dialog (used at startup)."""
         self.src = self.src_var.get().strip()
+        self._reg_load()
         if not self.src or not os.path.isdir(self.src):
             self.canvas.delete("all")
             self.all_slides = self.slides = []
@@ -1250,6 +1267,7 @@ class App(tk.Tk):
         files = sorted((f for f in os.listdir(self.src) if f.lower().endswith(EXTS)), key=natural_key)
         log.info("scan %s: %d slide files", self.src, len(files))
         self.all_slides = [Slide(os.path.join(self.src, f)) for f in files]
+        self._reg_reconcile(files)
         self.pinned = None
         self._build_items()
         self._apply_view(keep_focus=False)
@@ -1269,7 +1287,7 @@ class App(tk.Tk):
     def _update_count(self):
         hidden = len(self.all_slides) - len(self.slides)
         self.count_var.set(t("shown", shown=len(self.slides), total=len(self.all_slides))
-                           + (t("hidden_n", n=hidden) if hidden else ""))
+                           + (t("hidden_n", n=hidden) if hidden else "") + self._reg_count_text())
         # a filtered grid is easy to forget: tint the find box while it hides something
         self.filter_entry.configure(bg=FILTER_BG if self.filter_var.get().strip() else "white")
         self._refresh_selection_ui()
@@ -1300,8 +1318,10 @@ class App(tk.Tk):
         focused = self.slides[self.focus_idx] if (keep_focus and self.focus_idx is not None
                                                   and self.focus_idx < len(self.slides)) else None
         needle = self.filter_var.get().strip().lower()
+        reg_keep = self._reg_view_filter()      # None = no 'flagged pairs only' filter
         for sl in self.all_slides:
-            sl.visible = (needle in sl.name.lower()) if needle else True
+            sl.visible = ((needle in sl.name.lower()) if needle else True) and (
+                reg_keep is None or reg_keep(sl))
         key, rev = self._sort_spec()
         self.slides = sorted([sl for sl in self.all_slides if sl.visible], key=key, reverse=rev)
 
@@ -1473,6 +1493,7 @@ class App(tk.Tk):
                 self._layout_error_text(s)
         rows = (len(self.slides) + self.cols - 1) // self.cols
         c.configure(scrollregion=(0, 0, self.cols * (cw + PAD) + PAD, rows * (ch + PAD) + PAD))
+        self._layout_reg_badges()
         self._style_all()
         self._schedule_render(0)
         self._draw_empty_msg()
@@ -1607,6 +1628,7 @@ class App(tk.Tk):
         label = ("📌 " + s.name) if self.pinned is s else s.name
         if s.error:
             label = "ERROR: " + s.name
+        label = self._reg_label_prefix(s) + label
         self.canvas.itemconfigure(s.rect, outline=color, fill=(color if color != BG else CELL_BG))
         self.canvas.itemconfigure(s.txt, text=label, fill="#fff" if color != BG else "#ddd")
 
@@ -1763,7 +1785,8 @@ class App(tk.Tk):
         if self.focus_idx is not None and self.focus_idx < len(self.slides):
             s = self.slides[self.focus_idx]
             zoom = t("zoom_pct", pct=self.prev_zoom * 100) if self.prev_zoom > 1.001 else ""
-            self.prev_title.set(f"[{self.focus_idx + 1}/{len(self.slides)}] {s.name}{zoom}")
+            self.prev_title.set(f"[{self.focus_idx + 1}/{len(self.slides)}] {self._reg_title_tag(s)}"
+                                f"{s.name}{zoom}")
             if s.thumb is not None:
                 self._prev_tk = self._draw_on(self.prev_canvas, s.thumb)
             else:
@@ -1889,6 +1912,7 @@ class App(tk.Tk):
 
     def _on_rename_done(self, done, errors):
         self.busy = False
+        self._reg_on_renamed([(old, new) for _, old, new in done])
         if done:
             self.undo_stack.append(("rename", done))
         if errors:
@@ -1978,6 +2002,7 @@ class App(tk.Tk):
 
     def _on_move_done(self, moved, errors, failed):
         self.busy = False
+        self._reg_on_moved([(orig, target) for _, orig, target in moved])
         if moved:
             self.undo_stack.append(("move", moved))
         if failed:                      # the files are still in the source folder - show them again
@@ -1994,6 +2019,7 @@ class App(tk.Tk):
             self.status.set(t("nothing_undo"))
             return
         kind, batch = self.undo_stack.pop()
+        self._undo_inflight = batch             # flags follow the files back (see _reg_on_undone)
         self.busy = True
         what = t("undo_rename") if kind == "rename" else t("undo_move")
         log.info("undo (%s): %d file(s)", kind, len(batch))
@@ -2030,6 +2056,7 @@ class App(tk.Tk):
 
     def _on_undo_done(self, kind, restored, errors):
         self.busy = False
+        self._reg_on_undone(kind, restored)
         if errors:
             messagebox.showerror(t("undo_failed"), "\n".join(errors[:10]), parent=self)
         same_folder = all(os.path.normcase(os.path.dirname(s.path)) == os.path.normcase(self.src)
@@ -2042,6 +2069,274 @@ class App(tk.Tk):
             self._apply_view()
             self._style_all()
         self.status.set(t("undo_done", n=len(restored)) + t("ready_hint"))
+
+    # ---------------- registration flags + export (logic: review_records.py) ----------------
+    # A flag marks a slide whose H&E / stain pair needs registration (rotation, flip...) later.
+    # It is kept in <source>/review_flags.csv, follows renames / moves / undo, and survives a
+    # rescan, a restart and a language switch (it lives on the App, not in the widgets).
+    def _init_review_records(self):
+        self.flags = rr.FlagStore(None)
+        self.reg_only = False               # 'flagged pairs only' view filter
+        self._undo_inflight = None          # batch of the running undo, for the flags
+
+    def _build_review_records_ui(self, bar):
+        """Registration menu + Export button (right end of the action bar) and their keys.
+        Packed `before` the existing widgets so a narrow window clips those first, not these."""
+        first = (bar.pack_slaves() or [None])[0]
+        where = {"before": first} if first is not None else {}
+        exp = ttk.Button(bar, text=t("export_btn"), command=self.export_records)
+        exp.pack(side=tk.RIGHT, **where)
+        mb = ttk.Menubutton(bar, text=t("reg_btn"))
+        menu = tk.Menu(mb, tearoff=False)
+        self.reg_only_var = tk.BooleanVar(value=self.reg_only)
+        menu.add_command(label=t("reg_toggle_mi"), command=self.toggle_registration)
+        menu.add_command(label=t("reg_note_mi"), command=self.edit_registration_note)
+        menu.add_separator()
+        menu.add_checkbutton(label=t("reg_only_mi"), variable=self.reg_only_var,
+                             command=lambda: self._set_reg_only(self.reg_only_var.get()))
+        mb["menu"] = menu
+        mb.pack(side=tk.RIGHT, padx=6, after=exp)      # Export rightmost, Registration left of it
+        for seq, fn in (("<r>", self.toggle_registration),
+                        ("<R>", self.edit_registration_note),                 # Shift+R
+                        ("<Control-r>", lambda: self._set_reg_only(not self.reg_only)),
+                        ("<Control-e>", self.export_records)):
+            self.bind(seq, lambda e, fn=fn: self._reg_key(e, fn))
+
+    @staticmethod
+    def _reg_key(e, fn):
+        """Plain letter keys must still type into the filter box instead of flagging."""
+        try:
+            cls = e.widget.winfo_class()
+        except Exception:  # noqa
+            cls = ""
+        if cls in ("Entry", "TEntry", "Text", "TCombobox", "Spinbox") and not (e.state & 0x4):
+            return None
+        fn()
+        return "break"
+
+    # ---- store / persistence ----
+    def _reg_load(self):
+        folder = self.src if (self.src and os.path.isdir(self.src)) else None
+        self.flags = rr.FlagStore.load(folder)
+        if self.flags.load_error:
+            log.warning("cannot read %s: %s", self.flags.path, self.flags.load_error)
+        elif self.flags.entries:
+            log.info("registration flags: %d loaded from %s", len(self.flags.entries), self.flags.path)
+
+    def _reg_reconcile(self, present_names):
+        if self.flags.reconcile(present_names):
+            self._reg_save(self.flags)
+
+    def _reg_save(self, store):
+        try:
+            store.save()
+            return True
+        except OSError as e:
+            log.error("cannot save %s: %s", store.path, e)
+            self.status.set(t("reg_save_failed", path=store.path, e=e))
+            return False
+
+    def _flags_for(self, folder):
+        """The flag store of `folder`: the live one for the current source, else from disk."""
+        if self.flags.folder and os.path.normcase(os.path.abspath(folder)) == \
+                os.path.normcase(os.path.abspath(self.flags.folder)):
+            return self.flags
+        return rr.FlagStore.load(folder)
+
+    def _reg_follow(self, pairs, op):
+        """Apply op(store, a, b) for each (path_a, path_b); save each touched store once."""
+        touched = {}
+        for a, b in pairs:
+            store = self._flags_for(os.path.dirname(a))
+            if op(store, a, b):
+                touched[id(store)] = store
+        for store in touched.values():
+            self._reg_save(store)
+        if touched:
+            self._layout_reg_badges()
+            self._update_count()
+
+    def _reg_on_renamed(self, pairs):          # [(old_path, new_path)] after a group rename
+        self._reg_follow(pairs, lambda st, a, b: st.rename(os.path.basename(a), os.path.basename(b)))
+
+    def _reg_on_moved(self, pairs):            # [(original_path, path_in_target)] after a move
+        self._reg_follow(pairs, lambda st, a, b: st.mark_moved(os.path.basename(a), b))
+
+    def _reg_on_undone(self, kind, restored):
+        batch, self._undo_inflight = self._undo_inflight, None
+        ok = {id(s) for s in restored}
+        pairs = [(orig, target) for s, orig, target in (batch or []) if id(s) in ok]
+        if kind == "rename":                   # target name -> original name again
+            self._reg_follow(pairs, lambda st, a, b: st.rename(os.path.basename(b), os.path.basename(a)))
+        else:                                  # back in the source folder: active again
+            self._reg_follow(pairs, lambda st, a, b: st.mark_restored(os.path.basename(a)))
+
+    # ---- user actions ----
+    def _reg_targets(self):
+        """(slides, from_selection): the selection, or else the focused slide."""
+        sel = [s for s in self.all_slides if s.selected]
+        if sel:
+            return sel, True
+        if self.focus_idx is not None and self.focus_idx < len(self.slides):
+            return [self.slides[self.focus_idx]], False
+        return [], False
+
+    def _reg_more(self, targets):
+        return t("reg_more", n=len(targets) - 1) if len(targets) > 1 else ""
+
+    def toggle_registration(self):
+        """R: flag / unflag the selected slides (or the focused one)."""
+        if self.busy:
+            self.status.set(t("busy"))
+            return
+        targets, from_sel = self._reg_targets()
+        if not targets:
+            self.status.set(t("reg_nothing"))
+            return
+        on = self.flags.toggle([s.name for s in targets])
+        log.info("registration %s: %s", "flag" if on else "unflag", ", ".join(s.name for s in targets))
+        if self._reg_changed(from_sel):
+            self.status.set(t("reg_on" if on else "reg_off", name=targets[0].name,
+                              more=self._reg_more(targets)))
+
+    def edit_registration_note(self):
+        """Shift+R: flag with a note (rotation 180, flip...) in a small dialog."""
+        if self.busy:
+            self.status.set(t("busy"))
+            return
+        targets, from_sel = self._reg_targets()
+        if not targets:
+            self.status.set(t("reg_nothing"))
+            return
+        RegNoteDialog(self, targets, from_sel)
+
+    def apply_registration_note(self, targets, note, from_sel, remove=False):
+        names = [s.name for s in targets]
+        if remove:
+            self.flags.unflag(names)
+        else:
+            self.flags.flag(names, note=note)
+        log.info("registration %s: %s%s", "unflag" if remove else "note", ", ".join(names),
+                 "" if remove else f"  [{note.strip()}]")
+        if self._reg_changed(from_sel):
+            more = self._reg_more(targets)
+            self.status.set(t("reg_off", name=names[0], more=more) if remove else
+                            t("reg_noted", name=names[0], more=more, note=note.strip() or "-"))
+
+    def _reg_changed(self, from_sel):
+        """Save + redraw after a flag change. The selection that was flagged is cleared, so a
+        later Enter cannot move it by accident (like G). Returns False if saving failed."""
+        ok = self._reg_save(self.flags)
+        if from_sel:
+            for s in self.all_slides:
+                s.selected = False
+        self._apply_view()
+        return ok
+
+    def _set_reg_only(self, on):
+        self.reg_only = bool(on)
+        self.reg_only_var.set(self.reg_only)
+        self._apply_view()
+        self._update_status_count()
+
+    # ---- display hooks (called from _apply_view / _layout / _style_cell / _update_preview) ----
+    def _reg_view_filter(self):
+        """None, or a predicate keeping flagged slides and their pair partners."""
+        if not self.reg_only:
+            return None
+        keys = self.flags.active_pair_keys()
+        return lambda s: self.flags.is_flagged(s.name) or rr.pair_key(s.name) in keys
+
+    def _reg_count_text(self):
+        n = self.flags.count_active()
+        return (t("reg_count", n=n) if n else "") + (t("reg_only_on") if self.reg_only else "")
+
+    def _reg_label_prefix(self, s):
+        return "[REG] " if self.flags.is_flagged(s.name) else ""
+
+    def _reg_title_tag(self, s):
+        if self.flags.is_flagged(s.name):
+            note = self.flags.note(s.name)
+            return f"[REG{': ' + note if note else ''}] "
+        k = rr.pair_key(s.name)
+        if k is not None and k in self.flags.active_pair_keys():
+            return f"[{t('reg_badge_pair')}] "
+        return ""
+
+    def _layout_reg_badges(self):
+        """Orange badge in the thumbnail's top-left corner: filled = flagged, outlined = partner of
+        a flagged slide. Redrawn from scratch on every layout (only a handful of items)."""
+        c = self.canvas
+        c.delete("regbadge")
+        if not self.flags.entries:
+            return
+        keys = self.flags.active_pair_keys()
+        max_chars = max(6, self.thumb_w // 7)
+        for i, s in enumerate(self.slides):
+            flagged = self.flags.is_flagged(s.name)
+            if not flagged and rr.pair_key(s.name) not in keys:
+                continue
+            if flagged:
+                note = self.flags.note(s.name)
+                text = "REG" + (f" · {note}" if note else "")
+            else:
+                text = t("reg_badge_pair")
+            if len(text) > max_chars:
+                text = text[:max_chars - 1] + "…"
+            x, y = self._cell_xy(i)
+            tx = c.create_text(x + 12, y + 10, anchor="nw", text=text, font=("Segoe UI", 9, "bold"),
+                               fill="#1a1a1a" if flagged else COLOR_REG, tags=("regbadge",))
+            x0, y0, x1, y1 = c.bbox(tx)
+            box = c.create_rectangle(x0 - 4, y0 - 1, x1 + 4, y1 + 1, width=2, outline=COLOR_REG,
+                                     fill=COLOR_REG if flagged else "#1a1a1a", tags=("regbadge",))
+            c.tag_raise(tx, box)
+        c.tag_raise("regbadge")
+
+    # ---- export ----
+    def export_records(self):
+        """Ctrl+E: slides / excluded / registration / renames -> .xlsx + CSVs in the source folder."""
+        if self.busy:
+            self.status.set(t("busy"))
+            return
+        src = self.src
+        if not src or not os.path.isdir(src):
+            self.status.set(t("export_need_src"))
+            return
+        dst = self.dst_var.get().strip()
+        slides = [dict(name=s.name, size=s.size, mtime=s.mtime, error=s.error,
+                       loaded=s.thumb is not None) for s in self.all_slides]
+        out_dir = src
+        while True:
+            try:
+                written, notes = rr.export_all(src, dst, slides, self.flags, out_dir=out_dir)
+                break
+            except OSError as e:
+                log.error("export to %s failed: %s", out_dir, e)
+                if not messagebox.askokcancel(t("export_failed"), t("export_failed_msg", dir=out_dir, e=e),
+                                              parent=self, icon="warning"):
+                    return
+                d = self._ask_dir(out_dir, t("export_pick_dir"))
+                if not d:
+                    return
+                out_dir = os.path.normpath(d)
+        log.info("export: %s", ", ".join(written))
+        for n in notes:
+            log.info("  export note: %s", n["text"])
+        self.status.set(t("export_done", path=written[0]))
+        note_lines = []
+        for n in notes:
+            try:
+                note_lines.append(" - " + t("exp_note_" + n["code"],
+                                            **{k: v for k, v in n.items() if k not in ("code", "text")}))
+            except (KeyError, IndexError):
+                note_lines.append(" - " + n["text"])
+        msg = t("export_done_msg", dir=out_dir, files="\n".join(os.path.basename(p) for p in written),
+                notes=t("export_notes", notes="\n".join(note_lines)) if note_lines else "")
+        if messagebox.askyesno(t("export_done_title"), msg, parent=self):
+            try:
+                os.startfile(out_dir)           # Windows only
+            except (AttributeError, OSError) as e:
+                log.info("cannot open folder %s: %s", out_dir, e)
 
 
 class GroupDialog(tk.Toplevel):
@@ -2126,6 +2421,75 @@ class GroupDialog(tk.Toplevel):
         self.destroy()
         if pairs:
             self.app.apply_group_rename(pairs)
+
+
+class RegNoteDialog(tk.Toplevel):
+    """Shift+R: flag slides as 'needs registration later' with a short note."""
+
+    def __init__(self, app, slides, from_sel):
+        super().__init__(app)
+        self.app, self.slides, self.from_sel = app, slides, from_sel
+        self.title(t("reg_dlg_title"))
+        self.transient(app)
+        self.resizable(True, False)
+        names = [s.name for s in slides]
+        notes = {app.flags.note(n) for n in names if app.flags.is_flagged(n)}
+        init = notes.pop() if len(notes) == 1 else ""
+
+        ttk.Label(self, text=t("reg_dlg_info", n=len(names)), justify="left").pack(
+            anchor="w", padx=12, pady=(12, 4))
+        shown = "\n".join(names[:6]) + (f"\n… (+{len(names) - 6})" if len(names) > 6 else "")
+        ttk.Label(self, text=shown, font=("Consolas", 9), foreground="#404040",
+                  justify="left").pack(anchor="w", padx=12)
+
+        row = ttk.Frame(self)
+        row.pack(fill=tk.X, padx=12, pady=(10, 4))
+        ttk.Label(row, text=t("reg_dlg_note")).pack(side=tk.LEFT)
+        self.note_var = tk.StringVar(value=init)
+        self.ent = ttk.Entry(row, textvariable=self.note_var, width=52)
+        self.ent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
+
+        ttk.Label(self, text=t("reg_dlg_presets"), foreground="#606060").pack(anchor="w", padx=12)
+        pre = ttk.Frame(self)
+        pre.pack(anchor="w", padx=12, pady=(2, 8))
+        for i, p in enumerate(rr.NOTE_PRESETS, start=1):
+            ttk.Button(pre, text=f"{i}: {p}", command=lambda p=p: self._add(p)).pack(side=tk.LEFT, padx=(0, 4))
+            self.bind(f"<Control-Key-{i}>", lambda e, p=p: (self._add(p), "break")[-1])
+
+        btns = ttk.Frame(self)
+        btns.pack(fill=tk.X, padx=12, pady=(0, 12))
+        ttk.Button(btns, text=t("reg_dlg_save"), command=self._save).pack(side=tk.RIGHT)
+        ttk.Button(btns, text=t("cancel"), command=self._close).pack(side=tk.RIGHT, padx=6)
+        if any(app.flags.is_flagged(n) for n in names):
+            ttk.Button(btns, text=t("reg_dlg_remove"), command=self._remove).pack(side=tk.LEFT)
+
+        self.bind("<Return>", lambda e: self._save())
+        self.bind("<Escape>", lambda e: self._close())
+        self.protocol("WM_DELETE_WINDOW", self._close)
+        self.ent.focus_set()
+        self.ent.select_range(0, "end")
+        self.grab_set()
+
+    def _add(self, preset):
+        parts = [x.strip() for x in self.note_var.get().split(",") if x.strip()]
+        if preset not in parts:
+            parts.append(preset)
+        self.note_var.set(", ".join(parts))
+        self.ent.icursor("end")
+        self.ent.focus_set()
+
+    def _close(self):
+        self.destroy()
+        self.app.focus_set()
+
+    def _save(self):
+        note = self.note_var.get()
+        self._close()
+        self.app.apply_registration_note(self.slides, note, self.from_sel)
+
+    def _remove(self):
+        self._close()
+        self.app.apply_registration_note(self.slides, "", self.from_sel, remove=True)
 
 
 def main():

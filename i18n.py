@@ -205,6 +205,9 @@ STRINGS = {
                  "Enter · M|선택한 파일을 이동 폴더로 이동\n"
                  "Ctrl+Z|마지막 이동 / 이름 변경 되돌리기\n"
                  "G|선택한 파일 그룹 지정 (블록 A → A_1)\n"
+                 "R · Shift+R|registration 필요 표시 / 해제 · 메모와 함께 표시\n"
+                 "Ctrl+R|표시된 쌍만 보기\n"
+                 "Ctrl+E|작업 내용 내보내기 (XLSX + CSV)\n"
                  "#비교 · 미리보기\n"
                  "P|비교용 고정 (같은 슬라이드에서 다시 P = 해제)\n"
                  "Shift+P|고정 해제\n"
@@ -217,6 +220,41 @@ STRINGS = {
                  "F1 · ?|이 도움말",
     "help_note": "경로·파일명 입력칸에 커서가 있을 때는 한 글자 단축키(M, P, G, Enter 등)가 동작하지 "
                  "않습니다. Esc를 누르거나 썸네일을 클릭하면 다시 동작합니다.",
+    # ---- wsi_review: registration flag / export ----
+    "reg_btn": "Registration",
+    "reg_toggle_mi": "Registration 필요 표시 / 해제   (R)",
+    "reg_note_mi": "메모 입력...   (Shift+R)",
+    "reg_only_mi": "표시된 쌍만 보기   (Ctrl+R)",
+    "export_btn": "내보내기 (Ctrl+E)",
+    "reg_badge_pair": "R 짝",
+    "reg_nothing": "표시할 슬라이드가 없습니다 (클릭으로 포커스하거나 Ctrl+클릭으로 선택).",
+    "reg_on": "Registration 필요 표시: {name}{more}   (Shift+R = 메모, R = 해제)",
+    "reg_off": "Registration 표시 해제: {name}{more}",
+    "reg_more": " 외 {n}개",
+    "reg_noted": "메모 저장: {name}{more} → {note}",
+    "reg_count": "   ·  REG {n}개",
+    "reg_only_on": "   [표시된 쌍만 보기]",
+    "reg_save_failed": "{path} 저장 실패 (표시는 이번 실행 동안만 유지됩니다): {e}",
+    "reg_dlg_title": "Registration 메모",
+    "reg_dlg_info": "{n}개 슬라이드를 '추후 registration 필요'로 표시합니다.\n"
+                    "같은 accession + 블록(그룹 표시 포함)의 짝은 내보내기에 함께 기록됩니다.",
+    "reg_dlg_note": "메모:",
+    "reg_dlg_presets": "빠른 입력 (클릭 또는 Ctrl+1~5, 여러 개 가능):",
+    "reg_dlg_save": "저장 (Enter)",
+    "reg_dlg_remove": "표시 해제",
+    "export_need_src": "먼저 원본 폴더를 지정하고 스캔하세요.",
+    "export_done": "내보내기 완료: {path}",
+    "export_done_title": "내보내기 완료",
+    "export_done_msg": "다음 파일을 만들었습니다 ({dir}):\n\n{files}\n{notes}\n폴더를 열까요?",
+    "export_notes": "\n참고:\n{notes}\n",
+    "export_failed": "내보내기 실패",
+    "export_failed_msg": "다음 폴더에 쓸 수 없습니다:\n{dir}\n\n{e}\n\n다른 폴더를 선택하세요.",
+    "export_pick_dir": "내보낼 폴더 선택",
+    "exp_note_no_dst": "이동 폴더가 지정되지 않아 excluded 시트는 비어 있습니다.",
+    "exp_note_no_move_log": "이동 폴더에 move_log.csv가 없어 excluded 시트는 비어 있습니다: {path}",
+    "exp_note_log_unreadable": "로그 파일을 읽을 수 없습니다: {path} ({e})",
+    "exp_note_flags_unreadable": "review_flags.csv를 읽을 수 없습니다: {e}",
+    "exp_note_not_loaded": "썸네일 {n}개는 아직 읽는 중이라 thumbnail 열이 'not loaded yet'입니다.",
 
     # ---- svs_deid ----
     "deid_title": "SVS 메타데이터 비식별 도구",
@@ -452,6 +490,9 @@ STRINGS = {
                  "Enter · M|move the selected files to the 'Move to' folder\n"
                  "Ctrl+Z|undo the last move / rename\n"
                  "G|group the selected files (block A → A_1)\n"
+                 "R · Shift+R|flag / unflag 'needs registration' · flag with a note\n"
+                 "Ctrl+R|show flagged pairs only\n"
+                 "Ctrl+E|export the review records (XLSX + CSV)\n"
                  "#Compare · preview\n"
                  "P|pin for comparison (P again on the same slide = release)\n"
                  "Shift+P|release the pin\n"
@@ -464,6 +505,42 @@ STRINGS = {
                  "F1 · ?|this help",
     "help_note": "While the cursor is in a path or find box, the one-key shortcuts (M, P, G, Enter, ...) "
                  "are off. Press Esc or click a thumbnail to turn them back on.",
+    # ---- wsi_review: registration flag / export ----
+    "reg_btn": "Registration",
+    "reg_toggle_mi": "Flag / unflag: needs registration   (R)",
+    "reg_note_mi": "Note...   (Shift+R)",
+    "reg_only_mi": "Show flagged pairs only   (Ctrl+R)",
+    "export_btn": "Export (Ctrl+E)",
+    "reg_badge_pair": "R pair",
+    "reg_nothing": "Nothing to flag (click a slide to focus it, or Ctrl+Click to select).",
+    "reg_on": "Flagged for registration: {name}{more}   (Shift+R = note, R = unflag)",
+    "reg_off": "Registration flag removed: {name}{more}",
+    "reg_more": " +{n} more",
+    "reg_noted": "Note saved: {name}{more} → {note}",
+    "reg_count": "   ·  REG {n}",
+    "reg_only_on": "   [flagged pairs only]",
+    "reg_save_failed": "Could not save {path} (flags are kept for this session only): {e}",
+    "reg_dlg_title": "Registration note",
+    "reg_dlg_info": "Flag {n} slide(s) as 'needs registration later'.\n"
+                    "Partner slides (same accession + block, group tag included) are listed with it "
+                    "in the export.",
+    "reg_dlg_note": "Note:",
+    "reg_dlg_presets": "Quick add (click or Ctrl+1..5, combinable):",
+    "reg_dlg_save": "Save (Enter)",
+    "reg_dlg_remove": "Remove flag",
+    "export_need_src": "Choose and scan a source folder first.",
+    "export_done": "Exported: {path}",
+    "export_done_title": "Export complete",
+    "export_done_msg": "Created these files in {dir}:\n\n{files}\n{notes}\nOpen the folder?",
+    "export_notes": "\nNotes:\n{notes}\n",
+    "export_failed": "Export failed",
+    "export_failed_msg": "Cannot write to:\n{dir}\n\n{e}\n\nPlease choose another folder.",
+    "export_pick_dir": "Choose a folder for the export",
+    "exp_note_no_dst": "No 'Move to' folder is set, so the excluded sheet is empty.",
+    "exp_note_no_move_log": "No move_log.csv in the 'Move to' folder, so the excluded sheet is empty: {path}",
+    "exp_note_log_unreadable": "Could not read the log file: {path} ({e})",
+    "exp_note_flags_unreadable": "Could not read review_flags.csv: {e}",
+    "exp_note_not_loaded": "{n} thumbnail(s) were still loading; their 'thumbnail' column says 'not loaded yet'.",
 
     # ---- svs_deid ----
     "deid_title": "SVS Metadata De-identification",

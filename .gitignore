@@ -19,4 +19,6 @@ build_tmp/
 .wsi_thumbs/
 move_log.csv
 rename_log.csv
+review_flags.csv
+review_export_*
 .claude/
