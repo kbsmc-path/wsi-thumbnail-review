@@ -71,7 +71,8 @@ STRINGS = {
     "size": "크기",
     "find_name": "파일명 찾기",
     "clear": "지우기",
-    "adjust_title": "보기 보정 (화면에만 적용, 파일은 그대로)",
+    "adjust_title": "③ 화면 보정",
+    "adjust_note": "흐린 슬라이드가 잘 보이게 먼저 맞추세요 · 화면에만 적용, 파일은 그대로",
     "saturation": "채도",
     "gamma": "감마",
     "gamma_hint": "(낮추면 진해짐)",
@@ -109,7 +110,7 @@ STRINGS = {
     "sel_count": "{n}개 선택 / 전체 {total}개",
     "sel_hidden": "  (그 중 {n}개는 현재 필터에 가려져 있지만 이동 대상에 포함됩니다)",
     "sel_hint": "   Enter = 선택 파일 이동",
-    "size_status": "썸네일 크기: {name} ({px}px), 한 줄에 {cols}개",
+    "size_status": "썸네일 크기: {px}px, 한 줄에 {cols}개",
     "busy": "이전 작업이 끝날 때까지 기다려 주세요.",
     "no_pin": "고정된 슬라이드가 없습니다.",
     "unpinned": "고정 해제: {name}",
@@ -172,7 +173,7 @@ STRINGS = {
     "pill_none": "선택 없음",
     "pill_sel": "{n}개 선택",
     "pill_sel_hidden": "{n}개 선택 (숨김 {h})",
-    "adjust_btn": "화면 보정",
+    "adjust_btn": "③ 화면 보정",
     "help_btn": "단축키 (F1)",
     "tip_browse_src": "검토할 슬라이드(.svs)가 있는 폴더를 고릅니다. 고르면 바로 스캔합니다.",
     "tip_browse_dst": "골라낸 슬라이드를 옮길 폴더입니다. 없는 폴더도 됩니다(처음 이동할 때 생성).",
@@ -184,7 +185,7 @@ STRINGS = {
     "tip_move_nodst": "(이동 폴더 미지정)",
     "tip_group": "선택한 H&E·면역염색 슬라이드를 한 그룹으로 묶습니다 (블록 이름 A → A_1)",
     "tip_undo": "마지막 이동 또는 이름 변경을 되돌립니다",
-    "tip_size": "썸네일 크기 (+ / − 키)",
+    "tip_size": "썸네일 크기 — 끌어서 조절 · 그리드에서 Ctrl+휠 · + / − 키",
     "tip_adjust": "채도·감마 보정 줄을 열고 닫습니다. 화면에만 적용되고 파일은 바뀌지 않습니다.\n"
                   "● 표시 = 보정이 적용 중",
     "tip_find": "파일명 일부를 입력하면 바로 걸러집니다.\nEnter 또는 Esc = 목록으로 돌아가기",
@@ -214,7 +215,7 @@ STRINGS = {
                  "휠 · 드래그 · 더블클릭|미리보기 줌 · 이동 · 줌 초기화\n"
                  "0|미리보기 줌 초기화\n"
                  "#보기 · 폴더\n"
-                 "+ / −|썸네일 크기\n"
+                 "+ / − · Ctrl+휠|썸네일 크기\n"
                  "Ctrl+F|파일명 찾기\n"
                  "F5|원본 폴더 다시 스캔\n"
                  "F1 · ?|이 도움말",
@@ -354,7 +355,8 @@ STRINGS = {
     "size": "Size",
     "find_name": "Find by name",
     "clear": "Clear",
-    "adjust_title": "Display correction (view only — files are never changed)",
+    "adjust_title": "③ Display",
+    "adjust_note": "set this first so faint slides show · view only, files are never changed",
     "saturation": "Saturation",
     "gamma": "Gamma",
     "gamma_hint": "(lower = darker)",
@@ -392,7 +394,7 @@ STRINGS = {
     "sel_count": "{n} selected of {total}",
     "sel_hidden": "  ({n} of them are hidden by the filter but will still be moved)",
     "sel_hint": "   Enter = move selected",
-    "size_status": "Thumbnail size: {name} ({px}px), {cols} per row",
+    "size_status": "Thumbnail size: {px}px, {cols} per row",
     "busy": "Please wait for the previous operation to finish.",
     "no_pin": "No slide is pinned.",
     "unpinned": "Unpinned: {name}",
@@ -457,7 +459,7 @@ STRINGS = {
     "pill_none": "none selected",
     "pill_sel": "{n} selected",
     "pill_sel_hidden": "{n} selected ({h} hidden)",
-    "adjust_btn": "Display",
+    "adjust_btn": "③ Display",
     "help_btn": "Shortcuts (F1)",
     "tip_browse_src": "Pick the folder with the slides (.svs) to review. It is scanned right away.",
     "tip_browse_dst": "Rejected slides are moved here. It may not exist yet (created on the first move).",
@@ -469,7 +471,7 @@ STRINGS = {
     "tip_move_nodst": "(no 'Move to' folder yet)",
     "tip_group": "Tie the selected H&E / IHC slides into one group (block A → A_1)",
     "tip_undo": "Undo the last move or rename",
-    "tip_size": "Thumbnail size (+ / − keys)",
+    "tip_size": "Thumbnail size — drag · Ctrl+wheel over the grid · + / − keys",
     "tip_adjust": "Show / hide the saturation and gamma row. Display only — files are never changed.\n"
                   "● = a correction is active",
     "tip_find": "Type part of a file name to filter at once.\nEnter or Esc = back to the grid",
@@ -499,7 +501,7 @@ STRINGS = {
                  "Wheel · drag · double-click|preview zoom · pan · reset\n"
                  "0|reset preview zoom\n"
                  "#View · folders\n"
-                 "+ / −|thumbnail size\n"
+                 "+ / − · Ctrl+wheel|thumbnail size\n"
                  "Ctrl+F|find by name\n"
                  "F5|rescan the source folder\n"
                  "F1 · ?|this help",

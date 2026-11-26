@@ -81,7 +81,7 @@ python wsi_review.py --check <folder>      # print which TIFF page is used per f
 | G | group selected slides (block tag, e.g. `A` → `A_1`) |
 | R · Shift+R · Ctrl+R | flag / unflag *needs registration* (selection, else focused) · flag with a note · show flagged pairs only |
 | Ctrl+E | export the work to `review_export_<time>.xlsx` + CSVs in the source folder |
-| + / − · F5 · Ctrl+F · 0 | thumbnail size · rescan · find by name · reset zoom |
+| + / − · Ctrl+wheel · size slider · F5 · Ctrl+F · 0 | thumbnail size · rescan · find by name · reset zoom |
 | Wheel / drag / double-click on preview | zoom / pan / reset |
 | F1 or ? | list of all shortcuts |
 

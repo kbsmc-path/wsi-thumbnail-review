@@ -280,6 +280,7 @@ WARN_EDGE = "#e06000"
 WARN_TEXT = "#b04a00"
 INFO_TEXT = "#1d5fa0"
 ENTRY_EDGE = "#a0a0a0"
+ADJ_BG, ADJ_EDGE, ADJ_TEXT = "#dcebfb", "#2f6fb5", "#14508f"   # step 3: display-correction band
 FILTER_BG = "#fff6bf"   # find box while a filter is active (the grid is not showing everything)
 MOVE_BG, MOVE_ACTIVE = "#c62828", "#9f1d1d"
 MOVE_WARN_BG, MOVE_WARN_ACTIVE = "#e07a00", "#b86400"
@@ -726,7 +727,8 @@ class App(tk.Tk):
         self.size_idx = [n for n, _ in SIZES].index(DEFAULT_SIZE)
         self.thumb_w = SIZES[self.size_idx][1]
         self._poll_job = None
-        self.adj_open = False      # display-correction row folded away (more room for the grid)
+        self.adj_open = True       # display-correction band (step 3) - shown until folded away
+        self._size_job = None
         self._folder_job = None
         self._dst_bad = True       # cached 'Move to' check for the button colour
         self._help = None
@@ -768,7 +770,7 @@ class App(tk.Tk):
         if code == i18n.get_lang():
             return
         keep = dict(src=self.src_var.get(), dst=self.dst_var.get(),
-                    sort=self._sort_key_name(), size=self.size_var.get(),
+                    sort=self._sort_key_name(),
                     filt=self.filter_var.get(), sat=self.sat, gamma=self.gamma)
         i18n.set_lang(code)
         for w in self.winfo_children():
@@ -777,9 +779,7 @@ class App(tk.Tk):
         self._build_ui()
         self.src_var.set(keep["src"]);  self.dst_var.set(keep["dst"])
         self.sort_var.set(t(keep["sort"]))          # same sort, label in the new language
-        self.size_var.set(keep["size"])
         self.filter_var.set(keep["filt"])
-        self.thumb_w = SIZES[[n for n, _ in SIZES].index(keep["size"])][1]
         self.sat_scale.set(keep["sat"]); self.gam_scale.set(keep["gamma"])
         self._build_items()             # the canvas was destroyed - recreate the cells
         self._apply_view()
@@ -802,6 +802,12 @@ class App(tk.Tk):
         st.configure("Count.TLabel", font=(UI_FONT, 10, "bold"), foreground="#0050a0")
         st.configure("Hint.TLabel", font=(UI_FONT, 9))
         st.configure("On.TButton", foreground=WARN_TEXT)
+        st.configure("Adj.TFrame", background=ADJ_BG)
+        st.configure("Adj.TLabel", background=ADJ_BG)
+        st.configure("AdjTitle.TLabel", background=ADJ_BG, foreground=ADJ_TEXT,
+                     font=(UI_FONT, 10, "bold"))
+        st.configure("AdjNote.TLabel", background=ADJ_BG, foreground="#4a5a6a", font=(UI_FONT, 9))
+        st.configure("Adj.Horizontal.TScale", background=ADJ_BG)
         st.configure("HelpHead.TLabel", font=(UI_FONT, 10, "bold"))
         st.configure("HelpKey.TLabel", font=("Consolas", 10, "bold"), foreground="#0050a0")
 
@@ -910,13 +916,17 @@ class App(tk.Tk):
                 self.sort_var.set(t(k))
                 break
         ttk.Label(g, text=t("size")).pack(side=tk.LEFT, padx=(10, 4))
-        self.size_var = tk.StringVar(value=DEFAULT_SIZE)
-        cb = ttk.Combobox(g, textvariable=self.size_var, values=[n for n, _ in SIZES],
-                          width=4, state="readonly")
-        cb.pack(side=tk.LEFT)
-        cb.bind("<<ComboboxSelected>>", lambda e: (self._set_size(self.size_var.get()), self.focus_set()))
-        Tooltip(cb, t("tip_size"))
-        self.adj_btn = ttk.Button(g, command=self._toggle_adjust)
+        # continuous slider: the grid follows while it is dragged (also Ctrl+wheel, + / - keys)
+        self.size_lbl = tk.StringVar(value=f"{self.thumb_w}px")
+        self.size_scale = ttk.Scale(g, from_=SIZES[0][1], to=SIZES[-1][1], length=150,
+                                    value=self.thumb_w, command=self._on_size_scale)
+        self.size_scale.pack(side=tk.LEFT)
+        self.size_scale.bind("<ButtonRelease-1>", lambda e: self.focus_set(), add="+")
+        Tooltip(self.size_scale, t("tip_size"))
+        ttk.Label(g, textvariable=self.size_lbl, width=6).pack(side=tk.LEFT, padx=(4, 0))
+        self.adj_btn = tk.Button(g, command=self._toggle_adjust, bg=ADJ_BG, activebackground=ADJ_BG,
+                                 fg=ADJ_TEXT, activeforeground=ADJ_TEXT, relief="groove", bd=1,
+                                 font=(UI_FONT, 9, "bold"), padx=8, pady=0, cursor="hand2")
         self.adj_btn.pack(side=tk.LEFT, padx=(10, 0))
         Tooltip(self.adj_btn, t("tip_adjust"))
         flow.add(g)
@@ -945,35 +955,39 @@ class App(tk.Tk):
                   padding=(8, 3)).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # ---- display-only image correction (folded away by default; toolbar button opens it) ----
-        adj = ttk.Frame(self, padding=(8, 0, 8, 6))
-        self.adj_frame = adj
+        band = tk.Frame(self, bg=ADJ_EDGE)                 # coloured edge: step 3 of the preparation
+        self.adj_frame = band
         if self.adj_open:
-            adj.pack(side=tk.TOP, fill=tk.X, after=self.toolbar)
-        ttk.Label(adj, text=t("adjust_title")).pack(side=tk.LEFT)
+            band.pack(side=tk.TOP, fill=tk.X, after=self.toolbar, padx=8, pady=(0, 6))
+        adj = ttk.Frame(band, padding=(8, 5, 8, 5), style="Adj.TFrame")
+        adj.pack(fill=tk.X, padx=(6, 1), pady=1)
+        ttk.Label(adj, text=t("adjust_title"), style="AdjTitle.TLabel").pack(side=tk.LEFT)
+        # packed first so a narrow window never clips them (the note at the end goes first)
+        ttk.Button(adj, text=t("faint_preset"), width=16,
+                   command=lambda: self._set_adjust(1.8, 0.75)).pack(side=tk.RIGHT)
+        ttk.Button(adj, text=t("reset"), width=10,
+                   command=self._reset_adjust).pack(side=tk.RIGHT, padx=8)
 
         # the StringVars must exist before the scales: Scale.set() fires the command callback
         self.sat_lbl = tk.StringVar(value=f"{SAT_DEFAULT:.2f}")
         self.gam_lbl = tk.StringVar(value=f"{GAMMA_DEFAULT:.2f}")
 
-        ttk.Label(adj, text="   " + t("saturation")).pack(side=tk.LEFT, padx=(12, 4))
+        ttk.Label(adj, text="   " + t("saturation"), style="Adj.TLabel").pack(side=tk.LEFT, padx=(12, 4))
         self.sat_scale = ttk.Scale(adj, from_=SAT_RANGE[0], to=SAT_RANGE[1], length=170,
-                                   value=SAT_DEFAULT,
+                                   value=SAT_DEFAULT, style="Adj.Horizontal.TScale",
                                    command=lambda v: self._on_adjust("sat", v))
         self.sat_scale.pack(side=tk.LEFT)
-        ttk.Label(adj, textvariable=self.sat_lbl, width=5).pack(side=tk.LEFT, padx=(4, 0))
+        ttk.Label(adj, textvariable=self.sat_lbl, width=5, style="Adj.TLabel").pack(side=tk.LEFT, padx=(4, 0))
 
-        ttk.Label(adj, text="   " + t("gamma")).pack(side=tk.LEFT, padx=(12, 4))
+        ttk.Label(adj, text="   " + t("gamma"), style="Adj.TLabel").pack(side=tk.LEFT, padx=(12, 4))
         self.gam_scale = ttk.Scale(adj, from_=GAMMA_RANGE[0], to=GAMMA_RANGE[1], length=170,
-                                   value=GAMMA_DEFAULT,
+                                   value=GAMMA_DEFAULT, style="Adj.Horizontal.TScale",
                                    command=lambda v: self._on_adjust("gamma", v))
         self.gam_scale.pack(side=tk.LEFT)
-        ttk.Label(adj, textvariable=self.gam_lbl, width=5).pack(side=tk.LEFT, padx=(4, 0))
-        ttk.Label(adj, text=t("gamma_hint"), foreground="#606060").pack(side=tk.LEFT, padx=(2, 0))
+        ttk.Label(adj, textvariable=self.gam_lbl, width=5, style="Adj.TLabel").pack(side=tk.LEFT, padx=(4, 0))
+        ttk.Label(adj, text=t("gamma_hint"), style="AdjNote.TLabel").pack(side=tk.LEFT, padx=(2, 0))
 
-        ttk.Button(adj, text=t("reset"), width=10,
-                   command=self._reset_adjust).pack(side=tk.LEFT, padx=12)
-        ttk.Button(adj, text=t("faint_preset"), width=16,
-                   command=lambda: self._set_adjust(1.8, 0.75)).pack(side=tk.LEFT)
+        ttk.Label(adj, text=t("adjust_note"), style="AdjNote.TLabel").pack(side=tk.LEFT, padx=(14, 0))
         self._update_adjust_btn()
 
         paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
@@ -1172,7 +1186,7 @@ class App(tk.Tk):
     def _toggle_adjust(self):
         self.adj_open = not self.adj_open
         if self.adj_open:
-            self.adj_frame.pack(side=tk.TOP, fill=tk.X, after=self.toolbar)
+            self.adj_frame.pack(side=tk.TOP, fill=tk.X, after=self.toolbar, padx=8, pady=(0, 6))
         else:
             self.adj_frame.pack_forget()
         self._update_adjust_btn()
@@ -1185,7 +1199,7 @@ class App(tk.Tk):
         text = t("adjust_btn") + (" ▴" if self.adj_open else " ▾")
         if active:
             text += "  ●"
-        self.adj_btn.configure(text=text, style="On.TButton" if active else "TButton")
+        self.adj_btn.configure(text=text, fg=WARN_TEXT if active else ADJ_TEXT)
 
     def _show_help(self):
         if self._help is not None and self._help.winfo_exists():
@@ -1512,12 +1526,33 @@ class App(tk.Tk):
         return max(1, self.canvas.winfo_height() // (self.cell_h + PAD))
 
     def _set_size(self, name):
-        names = [n for n, _ in SIZES]
-        if name not in names:
+        """Jump to a named preset (XS ... XXL)."""
+        px = dict(SIZES).get(name)
+        if px:
+            self._set_thumb_w(px)
+
+    def _on_size_scale(self, value):
+        if hasattr(self, "size_lbl"):          # fired while the toolbar is still being built
+            self._set_thumb_w(float(value), from_scale=True)
+
+    def _set_thumb_w(self, px, from_scale=False):
+        """Any width between the smallest and the largest preset. The grid is rebuilt at most every
+        30 ms, so it follows the slider / Ctrl+wheel while they move."""
+        px = int(min(max(round(px), SIZES[0][1]), SIZES[-1][1]))
+        if not from_scale:
+            self.size_scale.set(px)            # fires _on_size_scale -> back here with from_scale
             return
-        self.size_idx = names.index(name)
-        self.thumb_w = SIZES[self.size_idx][1]
-        self.size_var.set(name)
+        self.size_lbl.set(f"{px}px")
+        if px == self.thumb_w:
+            return
+        self.thumb_w = px
+        if self._size_job is None:
+            self._size_job = self.after(30, self._apply_size)
+
+    def _apply_size(self):
+        self._size_job = None
+        if not self.canvas.winfo_exists():
+            return
         self.cols = max(1, (self.canvas.winfo_width() - PAD) // (self.cell_w + PAD))
         for s in self.all_slides:                   # drop old-size images; visible ones re-render right away
             s.tk_small = None
@@ -1528,7 +1563,7 @@ class App(tk.Tk):
         if self.focus_idx is not None:
             self._scroll_to(self.focus_idx)
         self._render_visible()
-        self.status.set(t("size_status", name=name, px=self.thumb_w, cols=self.cols))
+        self.status.set(t("size_status", px=self.thumb_w, cols=self.cols))
 
     # ---------------- display-only correction ----------------
     def _on_adjust(self, which, value):
@@ -1562,15 +1597,21 @@ class App(tk.Tk):
         self._update_preview()
 
     def _step_size(self, d):
-        i = min(max(0, self.size_idx + d), len(SIZES) - 1)
-        if i != self.size_idx:
-            self._set_size(SIZES[i][0])
+        """+ / - keys: to the next preset above / below the current width."""
+        widths = [w for _, w in SIZES]
+        if d > 0:
+            nxt = next((w for w in widths if w > self.thumb_w), widths[-1])
+        else:
+            nxt = next((w for w in reversed(widths) if w < self.thumb_w), widths[0])
+        self._set_thumb_w(nxt)
 
     def _on_wheel(self, e):
         if e.widget.winfo_toplevel() is not self:
             return
         under = self.canvas.winfo_containing(e.x_root, e.y_root)
-        if under is self.canvas:
+        if under is self.canvas and (e.state & 0x4):          # Ctrl+wheel = thumbnail size
+            self._set_thumb_w(self.thumb_w * (1.1 if e.delta > 0 else 1 / 1.1))
+        elif under is self.canvas:
             self.canvas.yview_scroll(int(-e.delta / 120) * 3, "units")
         elif under is self.prev_canvas:
             self._zoom_at(1.25 if e.delta > 0 else 0.8,
