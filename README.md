@@ -75,6 +75,11 @@ python wsi_review.py --check <folder>      # print which TIFF page is used per f
 | G | group selected slides (block tag, e.g. `A` → `A_1`) |
 | + / − · F5 · Ctrl+F · 0 | thumbnail size · rescan · find by name · reset zoom |
 | Wheel / drag / double-click on preview | zoom / pan / reset |
+| F1 or ? | list of all shortcuts |
+
+One-key shortcuts are ignored while you type in a folder or find box (Esc or a click on the grid returns to it).
+The source / *Move to* boxes turn orange with a hint while they are empty, missing or identical, and the
+*Move selected* button stays grey until something is selected (orange: the *Move to* folder still needs fixing).
 
 Notes
 

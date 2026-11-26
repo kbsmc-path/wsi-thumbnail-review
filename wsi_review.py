@@ -37,6 +37,13 @@ Keys:
                     the cached thumbnails and the slide files are never changed
     0               reset preview zoom
     G               group the selected files (block rename, e.g. A -> A_1)
+    F1 or ?         list of all shortcuts
+    One-key shortcuts (M, P, G, Enter, Space, arrows, ...) are off while the cursor is in a
+    text box (folder paths, find box); Esc or a click on the grid turns them back on.
+
+Window: (1) source and (2) 'Move to' folder on top - a box turns orange with a hint below while it
+still needs attention (empty, not found, same as the source). The toolbar groups wrap onto a second
+line in a narrow window; the display-correction row is folded behind the [Display] button.
 
 Log: everything (scan, extraction, errors with reason, moves, undo) is printed to the console
      and appended to wsi_review.log next to this script.
@@ -85,6 +92,7 @@ if sys.version_info < MIN_PYTHON:
 try:
     import tkinter as tk
     from tkinter import filedialog, messagebox, ttk
+    import tkinter.font as tkfont
 except ImportError as e:
     _missing(f"tkinter (Python's GUI library) is not available: {e}\n"
              "tkinter(파이썬 GUI 모듈)가 없습니다.",
@@ -250,6 +258,19 @@ COLOR_SELECTED = "#e03030"
 COLOR_FOCUS = "#3080ff"
 TEXT_H = 34             # space reserved under each thumbnail for the file name (2 lines)
 PAD = 8                 # gap between cells
+
+# toolbar colours (light window chrome around the dark grid)
+UI_FONT = "Segoe UI"     # replaced at start-up by the system UI font (Malgun Gothic on Korean Windows)
+WARN_BG = "#ffe2c6"     # folder box that still needs attention
+WARN_EDGE = "#e06000"
+WARN_TEXT = "#b04a00"
+INFO_TEXT = "#1d5fa0"
+ENTRY_EDGE = "#a0a0a0"
+FILTER_BG = "#fff6bf"   # find box while a filter is active (the grid is not showing everything)
+MOVE_BG, MOVE_ACTIVE = "#c62828", "#9f1d1d"
+MOVE_WARN_BG, MOVE_WARN_ACTIVE = "#e07a00", "#b86400"
+OFF_BG, OFF_TEXT = "#e4e4e4", "#8a8a8a"
+PILL_BG, PILL_TEXT = "#ffdede", "#c01818"   # selection count: same red family as the selected cells
 
 
 # ----------------------------------------------------------------------------
@@ -524,6 +545,145 @@ class Slide:
         self.rect = self.img = self.txt = self.err_txt = None
 
 
+class Tooltip:
+    """Small yellow hint shown after hovering a widget. `text` may be a callable (evaluated on show)."""
+
+    def __init__(self, widget, text, delay=550):
+        self.w, self.text, self.delay = widget, text, delay
+        self.tip = self.job = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+        widget.bind("<Destroy>", self._hide, add="+")
+
+    def _schedule(self, _e=None):
+        self._hide()
+        self.job = self.w.after(self.delay, self._show)
+
+    def _show(self):
+        self.job = None
+        text = self.text() if callable(self.text) else self.text
+        if not text or not self.w.winfo_exists():
+            return
+        self.tip = tw = tk.Toplevel(self.w)
+        tw.wm_overrideredirect(True)
+        tk.Label(tw, text=text, justify="left", bg="#ffffe1", fg="#202020", relief="solid", bd=1,
+                 padx=7, pady=4, font=(UI_FONT, 9), wraplength=520).pack()
+        tw.update_idletasks()
+        x = self.w.winfo_rootx() + 8
+        y = self.w.winfo_rooty() + self.w.winfo_height() + 4
+        x = max(0, min(x, self.w.winfo_screenwidth() - tw.winfo_reqwidth() - 4))
+        tw.wm_geometry(f"+{x}+{y}")
+
+    def _hide(self, _e=None):
+        if self.job is not None:
+            try:
+                self.w.after_cancel(self.job)
+            except tk.TclError:
+                pass
+            self.job = None
+        if self.tip is not None:
+            try:
+                self.tip.destroy()
+            except tk.TclError:
+                pass
+            self.tip = None
+
+
+class FlowFrame(ttk.Frame):
+    """Toolbar that lays its groups out left to right and wraps them onto the next line when the
+    window is too narrow (e.g. 1366 px), so no control is ever cut off at the right edge."""
+
+    def __init__(self, master, hgap=8, vgap=4, margin=(8, 2, 8, 4), **kw):
+        super().__init__(master, **kw)
+        self._items, self._hgap, self._vgap, self._m = [], hgap, vgap, margin
+        self._job = None
+        self.bind("<Configure>", lambda e: self._schedule())
+
+    def add(self, w):
+        self._items.append(w)
+        w.bind("<Configure>", lambda e: self._schedule(), add="+")   # its text / width changed
+        self._schedule()
+
+    def _schedule(self):
+        if self._job is None:
+            self._job = self.after_idle(self._reflow)
+
+    def destroy(self):
+        if self._job is not None:
+            try:
+                self.after_cancel(self._job)
+            except tk.TclError:
+                pass
+            self._job = None
+        super().destroy()
+
+    def _reflow(self):
+        self._job = None
+        left, top, right, bottom = self._m
+        width = self.winfo_width()
+        if width <= 1:                        # not mapped yet
+            width = self.winfo_toplevel().winfo_width()
+        avail = max(1, width - left - right)
+        rows, row, x = [], [], 0
+        for w in self._items:
+            rw = w.winfo_reqwidth()
+            if row and x + rw > avail:
+                rows.append(row)
+                row, x = [], 0
+            row.append(w)
+            x += rw + self._hgap
+        if row:
+            rows.append(row)
+        y = top
+        for row in rows:
+            h = max(w.winfo_reqheight() for w in row)
+            x = left
+            for w in row:
+                w.place(x=x, y=y, height=h)
+                x += w.winfo_reqwidth() + self._hgap
+            y += h + self._vgap
+        total = y - self._vgap + bottom if rows else top + bottom
+        if int(str(self.cget("height") or 0)) != total:
+            self.configure(height=total)
+
+
+class HelpDialog(tk.Toplevel):
+    """F1: every shortcut on one page."""
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.title(t("help_title"))
+        self.transient(app)
+        self.resizable(False, False)
+        body = ttk.Frame(self, padding=(16, 12, 16, 12))
+        body.pack(fill=tk.BOTH, expand=True)
+        r = 0
+        for line in t("help_body").splitlines():
+            if not line.strip():
+                continue
+            if line.startswith("#"):
+                ttk.Label(body, text=line[1:].strip(), style="HelpHead.TLabel").grid(
+                    row=r, column=0, columnspan=2, sticky="w", pady=(10 if r else 0, 3))
+            else:
+                keys, desc = (line.split("|", 1) + [""])[:2]
+                ttk.Label(body, text=keys.strip(), style="HelpKey.TLabel").grid(
+                    row=r, column=0, sticky="w", padx=(10, 18), pady=1)
+                ttk.Label(body, text=desc.strip()).grid(row=r, column=1, sticky="w", pady=1)
+            r += 1
+        ttk.Label(body, text=t("help_note"), foreground="#606060", wraplength=560,
+                  justify="left").grid(row=r, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        btn = ttk.Button(body, text=t("help_close"), command=self.destroy)
+        btn.grid(row=r + 1, column=0, columnspan=2, sticky="e", pady=(10, 0))
+        for k in ("<Escape>", "<F1>", "<Return>"):
+            self.bind(k, lambda e: self.destroy())
+        self.update_idletasks()
+        x = app.winfo_rootx() + max(0, (app.winfo_width() - self.winfo_reqwidth()) // 2)
+        y = app.winfo_rooty() + 60
+        self.geometry(f"+{x}+{y}")
+        btn.focus_set()
+
+
 class App(tk.Tk):
     def __init__(self, src, dst):
         super().__init__()
@@ -552,6 +712,10 @@ class App(tk.Tk):
         self.size_idx = [n for n, _ in SIZES].index(DEFAULT_SIZE)
         self.thumb_w = SIZES[self.size_idx][1]
         self._poll_job = None
+        self.adj_open = False      # display-correction row folded away (more room for the grid)
+        self._folder_job = None
+        self._dst_bad = True       # cached 'Move to' check for the button colour
+        self._help = None
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._poll_job = self.after(100, self._poll_queue)
@@ -605,47 +769,122 @@ class App(tk.Tk):
         self._build_items()             # the canvas was destroyed - recreate the cells
         self._apply_view()
         self._update_status_count()
+        self._refresh_folder_state()
         log.info("language -> %s", code)
 
     # ---------------- UI construction ----------------
+    def _init_styles(self):
+        # use the system UI font: a hard-coded "Segoe UI" makes Korean fall back glyph by glyph
+        global UI_FONT
+        try:
+            UI_FONT = tkfont.nametofont("TkDefaultFont").actual("family")
+        except tk.TclError:
+            pass
+        st = ttk.Style(self)
+        st.configure("Step.TLabel", font=(UI_FONT, 10, "bold"))
+        st.configure("Group.TLabelframe.Label", font=(UI_FONT, 9, "bold"), foreground="#555555")
+        st.configure("Status.TLabel", font=(UI_FONT, 10))
+        st.configure("Count.TLabel", font=(UI_FONT, 10, "bold"), foreground="#0050a0")
+        st.configure("Hint.TLabel", font=(UI_FONT, 9))
+        st.configure("On.TButton", foreground=WARN_TEXT)
+        st.configure("HelpHead.TLabel", font=(UI_FONT, 10, "bold"))
+        st.configure("HelpKey.TLabel", font=("Consolas", 10, "bold"), foreground="#0050a0")
+
+    def _text_entry(self, parent, var, width=None):
+        """tk.Entry rather than ttk.Entry: the Windows ttk theme ignores fieldbackground, and the
+        folder boxes must be able to turn orange. bd=3 + flat relief acts as inner padding."""
+        e = tk.Entry(parent, textvariable=var, relief="flat", bd=3, font=(UI_FONT, 10),
+                     highlightthickness=1, highlightbackground=ENTRY_EDGE, highlightcolor=COLOR_FOCUS,
+                     bg="white", insertwidth=2)
+        if width:
+            e.configure(width=width)
+        e.bind("<Escape>", lambda ev: (self.focus_set(), "break")[-1])   # back to the grid
+        return e
+
+    @staticmethod
+    def _paint_entry(e, warn):
+        if warn:
+            e.configure(bg=WARN_BG, highlightthickness=2, highlightbackground=WARN_EDGE,
+                        highlightcolor=WARN_EDGE)
+        else:
+            e.configure(bg="white", highlightthickness=1, highlightbackground=ENTRY_EDGE,
+                        highlightcolor=COLOR_FOCUS)
+
     def _build_ui(self):
-        # ---- row 1: folders (entries stretch with the window) ----
-        top = ttk.Frame(self, padding=(6, 6, 6, 2))
+        self._init_styles()
+        # ---- row 1: the two working folders - step 1 and step 2 of every session ----
+        top = ttk.Frame(self, padding=(8, 6, 8, 2))
         top.pack(side=tk.TOP, fill=tk.X)
         top.columnconfigure(1, weight=1, uniform="path")
-        top.columnconfigure(4, weight=1, uniform="path")
-        ttk.Label(top, text=t("src_folder")).grid(row=0, column=0, sticky="w", padx=(0, 6))
+        top.columnconfigure(5, weight=1, uniform="path")
+        ttk.Label(top, text=t("step_src"), style="Step.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 6))
         self.src_var = tk.StringVar(value=self.src)
-        ttk.Entry(top, textvariable=self.src_var).grid(row=0, column=1, sticky="ew")
-        ttk.Button(top, text=t("browse"), width=11,
-                   command=self._pick_src).grid(row=0, column=2, padx=(4, 16))
-        ttk.Label(top, text=t("dst_folder")).grid(row=0, column=3, sticky="w", padx=(0, 6))
+        self.src_entry = self._text_entry(top, self.src_var)
+        self.src_entry.grid(row=0, column=1, sticky="ew")
+        self.src_entry.bind("<Return>", lambda e: (self.rescan(), self.focus_set(), "break")[-1])
+        b = ttk.Button(top, text=t("browse"), command=self._pick_src)
+        b.grid(row=0, column=2, padx=(4, 0))
+        Tooltip(b, t("tip_browse_src"))
+        b = ttk.Button(top, text=t("rescan"), command=self.rescan)
+        b.grid(row=0, column=3, padx=(4, 0))
+        Tooltip(b, t("tip_rescan"))
+        ttk.Label(top, text=t("step_dst"), style="Step.TLabel").grid(row=0, column=4, sticky="w", padx=(18, 6))
         self.dst_var = tk.StringVar(value=self.dst)
-        ttk.Entry(top, textvariable=self.dst_var).grid(row=0, column=4, sticky="ew")
-        ttk.Button(top, text=t("browse"), width=11,
-                   command=self._pick_dst).grid(row=0, column=5, padx=(4, 0))
-        ttk.Label(top, text=t("language")).grid(row=0, column=6, sticky="w", padx=(16, 6))
+        self.dst_entry = self._text_entry(top, self.dst_var)
+        self.dst_entry.grid(row=0, column=5, sticky="ew")
+        self.dst_entry.bind("<Return>", lambda e: (self._refresh_folder_state(), self.focus_set(), "break")[-1])
+        b = ttk.Button(top, text=t("browse"), command=self._pick_dst)
+        b.grid(row=0, column=6, padx=(4, 0))
+        Tooltip(b, t("tip_browse_dst"))
+        b = ttk.Button(top, text=t("help_btn"), command=self._show_help)
+        b.grid(row=0, column=7, padx=(18, 0))
+        Tooltip(b, t("tip_help"))
+        ttk.Label(top, text=t("language")).grid(row=0, column=8, sticky="w", padx=(10, 4))
         self.lang_var = tk.StringVar(value=i18n.lang_label())
-        lang_cb = ttk.Combobox(top, textvariable=self.lang_var, width=9, state="readonly",
+        lang_cb = ttk.Combobox(top, textvariable=self.lang_var, width=8, state="readonly",
                                values=[lb for lb, _ in i18n.LANGS])
-        lang_cb.grid(row=0, column=7)
+        lang_cb.grid(row=0, column=9)
         lang_cb.bind("<<ComboboxSelected>>",
                      lambda e: self._change_language(self.lang_var.get()))
+        # hint line under each folder box - only shown while there is something to say
+        self.src_hint = ttk.Label(top, style="Hint.TLabel")
+        self.src_hint.grid(row=1, column=1, columnspan=3, sticky="w", pady=(1, 0))
+        self.dst_hint = ttk.Label(top, style="Hint.TLabel")
+        self.dst_hint.grid(row=1, column=5, columnspan=5, sticky="w", pady=(1, 0))
+        for v in (self.src_var, self.dst_var):
+            v.trace_add("write", lambda *a: self._schedule_folder_check())
 
-        # ---- row 2: actions + view options ----
-        bar = ttk.Frame(self, padding=(6, 2, 6, 6))
-        bar.pack(side=tk.TOP, fill=tk.X)
-        ttk.Button(bar, text=t("rescan"), command=self.rescan).pack(side=tk.LEFT)
-        ttk.Button(bar, text=t("move_sel"),
-                   command=self.move_selected).pack(side=tk.LEFT, padx=6)
-        ttk.Button(bar, text=t("undo_btn"), command=self.undo).pack(side=tk.LEFT)
-        ttk.Button(bar, text=t("group_btn"), command=self.group_selected).pack(side=tk.LEFT, padx=6)
+        # ---- row 2: toolbar groups (wrap onto a second line in a narrow window) ----
+        flow = FlowFrame(self)
+        flow.pack(side=tk.TOP, fill=tk.X)
+        self.toolbar = flow
 
-        ttk.Separator(bar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=12)
+        # file actions: selection count + the primary action, then the others
+        g = ttk.LabelFrame(flow, text=t("grp_files"), style="Group.TLabelframe", padding=(6, 1, 6, 5))
+        self.sel_pill = tk.Label(g, font=(UI_FONT, 10, "bold"), padx=9, pady=3, bg=OFF_BG, fg=OFF_TEXT)
+        self.sel_pill.pack(side=tk.LEFT, padx=(0, 6))
+        Tooltip(self.sel_pill, t("tip_sel"))
+        self.move_btn = tk.Button(g, text=t("move_sel"), command=self.move_selected,
+                                  font=(UI_FONT, 10, "bold"), relief="flat", bd=0, padx=12, pady=3,
+                                  cursor="hand2", highlightthickness=0)
+        self.move_btn.pack(side=tk.LEFT)
+        Tooltip(self.move_btn, self._move_tip)
+        b = ttk.Button(g, text=t("group_btn"), command=self.group_selected)
+        b.pack(side=tk.LEFT, padx=(8, 0))
+        Tooltip(b, t("tip_group"))
+        b = ttk.Button(g, text=t("undo_btn"), command=self.undo)
+        b.pack(side=tk.LEFT, padx=(4, 0))
+        Tooltip(b, t("tip_undo"))
+        # slot for further file actions (registration mark, export) - keeps them in this group
+        self.action_slot = ttk.Frame(g)
+        self.action_slot.pack(side=tk.LEFT)
+        flow.add(g)
 
-        ttk.Label(bar, text=t("sort")).pack(side=tk.LEFT, padx=(0, 4))
+        # view: order, size, display correction
+        g = ttk.LabelFrame(flow, text=t("grp_view"), style="Group.TLabelframe", padding=(6, 1, 6, 5))
+        ttk.Label(g, text=t("sort")).pack(side=tk.LEFT, padx=(0, 4))
         self.sort_var = tk.StringVar(value=DEFAULT_SORT)
-        sb = ttk.Combobox(bar, textvariable=self.sort_var, width=19, state="readonly",
+        sb = ttk.Combobox(g, textvariable=self.sort_var, width=16, state="readonly",
                           values=[t(k) for k, _, _ in SORTS])
         self._sort_labels = [t(k) for k, _, _ in SORTS]
         sb.pack(side=tk.LEFT)
@@ -655,29 +894,46 @@ class App(tk.Tk):
             if self.sort_var.get() in (k, t(k)):
                 self.sort_var.set(t(k))
                 break
-
-        ttk.Label(bar, text="  " + t("size")).pack(side=tk.LEFT, padx=(12, 4))
+        ttk.Label(g, text=t("size")).pack(side=tk.LEFT, padx=(10, 4))
         self.size_var = tk.StringVar(value=DEFAULT_SIZE)
-        cb = ttk.Combobox(bar, textvariable=self.size_var, values=[n for n, _ in SIZES],
-                          width=5, state="readonly")
+        cb = ttk.Combobox(g, textvariable=self.size_var, values=[n for n, _ in SIZES],
+                          width=4, state="readonly")
         cb.pack(side=tk.LEFT)
         cb.bind("<<ComboboxSelected>>", lambda e: (self._set_size(self.size_var.get()), self.focus_set()))
+        Tooltip(cb, t("tip_size"))
+        self.adj_btn = ttk.Button(g, command=self._toggle_adjust)
+        self.adj_btn.pack(side=tk.LEFT, padx=(10, 0))
+        Tooltip(self.adj_btn, t("tip_adjust"))
+        flow.add(g)
 
-        ttk.Separator(bar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=12)
-
-        ttk.Label(bar, text=t("find_name")).pack(side=tk.LEFT, padx=(0, 4))
+        # find by name
+        g = ttk.LabelFrame(flow, text=t("grp_find"), style="Group.TLabelframe", padding=(6, 1, 6, 5))
         self.filter_var = tk.StringVar()
-        self.filter_entry = ttk.Entry(bar, textvariable=self.filter_var, width=22)
-        self.filter_entry.pack(side=tk.LEFT)
+        self.filter_entry = self._text_entry(g, self.filter_var, width=22)
+        self.filter_entry.pack(side=tk.LEFT, fill=tk.Y)
+        self.filter_entry.bind("<Return>", lambda e: (self._apply_view(), self.focus_set(), "break")[-1])
+        Tooltip(self.filter_entry, t("tip_find"))
         self.filter_var.trace_add("write", lambda *a: self._schedule_filter())
-        ttk.Button(bar, text=t("clear"), width=7,
-                   command=lambda: (self.filter_var.set(""), self.focus_set())).pack(side=tk.LEFT, padx=4)
-        self.count_var = tk.StringVar(value="")
-        ttk.Label(bar, textvariable=self.count_var, foreground="#0050a0").pack(side=tk.LEFT, padx=8)
+        ttk.Button(g, text=t("clear"), width=7,
+                   command=lambda: (self.filter_var.set(""), self.focus_set())).pack(side=tk.LEFT, padx=(4, 0))
+        flow.add(g)
 
-        # ---- row 3: display-only image correction ----
-        adj = ttk.Frame(self, padding=(6, 0, 6, 6))
-        adj.pack(side=tk.TOP, fill=tk.X)
+        # ---- status bar (packed before the grid so it always keeps its line) ----
+        sbar = ttk.Frame(self)
+        sbar.pack(side=tk.BOTTOM, fill=tk.X)
+        ttk.Separator(sbar, orient=tk.HORIZONTAL).pack(side=tk.TOP, fill=tk.X)
+        self.status = tk.StringVar(value="")
+        self.count_var = tk.StringVar(value="")
+        ttk.Label(sbar, textvariable=self.count_var, style="Count.TLabel",
+                  padding=(8, 3)).pack(side=tk.RIGHT)
+        ttk.Label(sbar, textvariable=self.status, style="Status.TLabel", anchor="w",
+                  padding=(8, 3)).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # ---- display-only image correction (folded away by default; toolbar button opens it) ----
+        adj = ttk.Frame(self, padding=(8, 0, 8, 6))
+        self.adj_frame = adj
+        if self.adj_open:
+            adj.pack(side=tk.TOP, fill=tk.X, after=self.toolbar)
         ttk.Label(adj, text=t("adjust_title")).pack(side=tk.LEFT)
 
         # the StringVars must exist before the scales: Scale.set() fires the command callback
@@ -703,9 +959,7 @@ class App(tk.Tk):
                    command=self._reset_adjust).pack(side=tk.LEFT, padx=12)
         ttk.Button(adj, text=t("faint_preset"), width=16,
                    command=lambda: self._set_adjust(1.8, 0.75)).pack(side=tk.LEFT)
-
-        self.status = tk.StringVar(value="")
-        ttk.Label(self, textvariable=self.status, anchor="w", padding=(6, 2)).pack(side=tk.BOTTOM, fill=tk.X)
+        self._update_adjust_btn()
 
         paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         paned.pack(fill=tk.BOTH, expand=True)
@@ -752,34 +1006,195 @@ class App(tk.Tk):
         self.prev_canvas.bind("<ButtonRelease-1>", lambda e: setattr(self, "_drag", None))
         self.prev_canvas.bind("<Double-Button-1>", lambda e: self._reset_zoom())
 
-        # keys
-        self.bind("<Left>", lambda e: self._move_focus(-1))
-        self.bind("<Right>", lambda e: self._move_focus(1))
-        self.bind("<Up>", lambda e: self._move_focus(-self.cols))
-        self.bind("<Down>", lambda e: self._move_focus(self.cols))
-        self.bind("<Prior>", lambda e: self._move_focus(-self.cols * self._rows_per_page()))
-        self.bind("<Next>", lambda e: self._move_focus(self.cols * self._rows_per_page()))
-        self.bind("<Home>", lambda e: self._move_focus(-10 ** 9))
-        self.bind("<End>", lambda e: self._move_focus(10 ** 9))
-        self.bind("<space>", lambda e: self._toggle_focused())
-        self.bind("<Return>", lambda e: self.move_selected())
-        self.bind("<m>", lambda e: self.move_selected())
-        self.bind("<M>", lambda e: self.move_selected())
-        self.bind("<Control-z>", lambda e: self.undo())
-        self.bind("<p>", lambda e: self._pin())
-        self.bind("<P>", lambda e: self._unpin())      # Shift+P always releases
-        self.bind("<Control-a>", lambda e: self._select_all(True))
-        self.bind("<Escape>", lambda e: self._select_all(False))
+        # keys - grid shortcuts go through _bind_key so they stay quiet while a text box is being
+        # typed in (typing "m" in a folder path or the find box must not move the selected files)
+        K = self._bind_key
+        K("<Left>", lambda: self._move_focus(-1))
+        K("<Right>", lambda: self._move_focus(1))
+        K("<Up>", lambda: self._move_focus(-self.cols))
+        K("<Down>", lambda: self._move_focus(self.cols))
+        K("<Prior>", lambda: self._move_focus(-self.cols * self._rows_per_page()))
+        K("<Next>", lambda: self._move_focus(self.cols * self._rows_per_page()))
+        K("<Home>", lambda: self._move_focus(-10 ** 9))
+        K("<End>", lambda: self._move_focus(10 ** 9))
+        K("<space>", self._toggle_focused)
+        K("<Return>", self.move_selected)
+        K("<m>", self.move_selected)
+        K("<M>", self.move_selected)
+        K("<Control-z>", self.undo)
+        K("<p>", self._pin)
+        K("<P>", self._unpin)      # Shift+P always releases
+        K("<Control-a>", lambda: self._select_all(True))
+        K("<Escape>", lambda: self._select_all(False))
+        K("<0>", self._reset_zoom)
+        K("<g>", self.group_selected)
+        K("<G>", self.group_selected)
+        K("<question>", self._show_help)
+        for k in ("<plus>", "<equal>", "<KP_Add>"):
+            K(k, lambda: self._step_size(1))
+        for k in ("<minus>", "<KP_Subtract>"):
+            K(k, lambda: self._step_size(-1))
+        # these work everywhere, also while typing
         self.bind("<F5>", lambda e: self.rescan())
+        self.bind("<F1>", lambda e: self._show_help())
         self.bind("<Control-f>", lambda e: (self.filter_entry.focus_set(),
                                             self.filter_entry.select_range(0, "end"), "break")[-1])
-        self.bind("<0>", lambda e: self._reset_zoom())
-        self.bind("<g>", lambda e: self.group_selected())
-        self.bind("<G>", lambda e: self.group_selected())
-        for k in ("<plus>", "<equal>", "<KP_Add>"):
-            self.bind(k, lambda e: self._step_size(1))
-        for k in ("<minus>", "<KP_Subtract>"):
-            self.bind(k, lambda e: self._step_size(-1))
+        self._refresh_folder_state()
+
+    @staticmethod
+    def _typing(e):
+        """True when the key went to a text box (folder path, find box, combobox)."""
+        return isinstance(e.widget, (tk.Entry, tk.Text, tk.Spinbox))
+
+    def _bind_key(self, seq, fn):
+        """Window-wide shortcut that is ignored while the user is typing into a text box."""
+        self.bind(seq, lambda e: None if self._typing(e) else fn())
+
+    # ---------------- toolbar state: folders, selection, display correction, help ----------------
+    def _schedule_folder_check(self):
+        if self._folder_job is not None:
+            try:
+                self.after_cancel(self._folder_job)
+            except tk.TclError:
+                pass
+        self._folder_job = self.after(250, self._refresh_folder_state)   # debounced: typing a path
+
+    @staticmethod
+    def _same_path(a, b):
+        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+    def _dst_problem(self):
+        """i18n key of the reason the 'Move to' folder cannot be used, or None if it is fine.
+        A folder that does not exist yet is fine - it is created by the first move."""
+        dst = self.dst_var.get().strip()
+        if not dst:
+            return "set_dst_first"
+        for src in (self.src, self.src_var.get().strip()):
+            if src and self._same_path(dst, src):
+                return "same_folder"
+        if os.path.exists(dst) and not os.path.isdir(dst):
+            return "dst_not_folder"
+        return None
+
+    def _refresh_folder_state(self):
+        """Colour the folder boxes and set the hint under each, from what is typed right now.
+        Runs after every edit (typing, Browse, rescan, language switch)."""
+        self._folder_job = None
+        if not hasattr(self, "src_hint") or not self.src_hint.winfo_exists():
+            return
+        src = self.src_var.get().strip()
+        dst = self.dst_var.get().strip()
+        src_ok = bool(src) and os.path.isdir(src)
+        if not src:
+            s_warn, s_msg = True, t("hint_src_empty")
+        elif not src_ok:
+            s_warn, s_msg = True, t("hint_src_missing")
+        elif not self.src or not self._same_path(src, self.src):
+            s_warn, s_msg = False, t("hint_src_rescan")
+        else:
+            s_warn, s_msg = False, ""
+        problem = self._dst_problem()
+        if problem:
+            d_warn, d_msg = True, t({"set_dst_first": "hint_dst_empty", "same_folder": "hint_dst_same",
+                                     "dst_not_folder": "hint_dst_file"}[problem])
+        elif src_ok and not same_drive(src, dst):
+            d_warn, d_msg = False, t("hint_dst_drive")
+        elif not os.path.exists(dst):
+            d_warn, d_msg = False, t("hint_dst_new")
+        else:
+            d_warn, d_msg = False, ""
+        self._dst_bad = problem is not None
+        for entry, label, warn, msg in ((self.src_entry, self.src_hint, s_warn, s_msg),
+                                        (self.dst_entry, self.dst_hint, d_warn, d_msg)):
+            self._paint_entry(entry, warn)
+            if msg:
+                label.configure(text=("⚠ " if warn else "ⓘ ") + msg,
+                                foreground=WARN_TEXT if warn else INFO_TEXT)
+                label.grid()
+            else:
+                label.grid_remove()
+        self._refresh_selection_ui()
+
+    def _warn_folder(self, key):
+        """Explain why the 'Move to' folder cannot be used, then put the cursor in that box."""
+        messagebox.showerror(t("error"), t(key), parent=self)
+        self._refresh_folder_state()
+        try:
+            self.dst_entry.focus_set()
+            self.dst_entry.select_range(0, "end")
+        except tk.TclError:
+            pass
+
+    def _move_tip(self):
+        dst = self.dst_var.get().strip()
+        return t("tip_move", dst=dst or t("tip_move_nodst"))
+
+    def _refresh_selection_ui(self):
+        """Selection badge + 'Move' button colour. Called whenever the selection, the slide list or
+        the 'Move to' folder changes."""
+        if not hasattr(self, "move_btn") or not self.move_btn.winfo_exists():
+            return
+        n = sum(1 for s in self.all_slides if s.selected)
+        hidden = sum(1 for s in self.all_slides if s.selected and not s.visible)
+        if n:
+            text = t("pill_sel_hidden", n=n, h=hidden) if hidden else t("pill_sel", n=n)
+            self.sel_pill.configure(text=text, bg=PILL_BG, fg=PILL_TEXT)
+        else:
+            self.sel_pill.configure(text=t("pill_none"), bg=OFF_BG, fg=OFF_TEXT)
+        if n == 0:          # nothing to move: greyed out (Enter / M then just say so in the status bar)
+            self.move_btn.configure(state="disabled", bg=OFF_BG, disabledforeground=OFF_TEXT,
+                                    cursor="arrow")
+        elif self._dst_bad:  # something to move but nowhere to put it: orange, a click explains why
+            self.move_btn.configure(state="normal", bg=MOVE_WARN_BG, fg="white",
+                                    activebackground=MOVE_WARN_ACTIVE, activeforeground="white",
+                                    cursor="hand2")
+        else:
+            self.move_btn.configure(state="normal", bg=MOVE_BG, fg="white",
+                                    activebackground=MOVE_ACTIVE, activeforeground="white",
+                                    cursor="hand2")
+
+    def _toggle_adjust(self):
+        self.adj_open = not self.adj_open
+        if self.adj_open:
+            self.adj_frame.pack(side=tk.TOP, fill=tk.X, after=self.toolbar)
+        else:
+            self.adj_frame.pack_forget()
+        self._update_adjust_btn()
+
+    def _update_adjust_btn(self):
+        """'Display correction' toggle; marked while a correction is active even if the row is folded."""
+        if not hasattr(self, "adj_btn"):
+            return
+        active = abs(self.sat - SAT_DEFAULT) > 0.01 or abs(self.gamma - GAMMA_DEFAULT) > 0.01
+        text = t("adjust_btn") + (" ▴" if self.adj_open else " ▾")
+        if active:
+            text += "  ●"
+        self.adj_btn.configure(text=text, style="On.TButton" if active else "TButton")
+
+    def _show_help(self):
+        if self._help is not None and self._help.winfo_exists():
+            self._help.lift()
+            self._help.focus_set()
+            return
+        self._help = HelpDialog(self)
+
+    def _draw_empty_msg(self):
+        """When the grid is empty, say why and what to do next, in the middle of the grid."""
+        c = self.canvas
+        c.delete("empty_msg")
+        if self.slides:
+            return
+        if not self.src:
+            msg, color = t("empty_pick_src"), "#ffb060"
+        elif not os.path.isdir(self.src):
+            msg, color = t("empty_src_missing", path=self.src), "#ffb060"
+        elif not self.all_slides:
+            msg, color = t("empty_no_files", path=self.src), "#c8c8c8"
+        else:
+            msg, color = t("empty_filtered", q=self.filter_var.get().strip()), "#c8c8c8"
+        w, h = max(c.winfo_width(), 300), max(c.winfo_height(), 200)
+        c.create_text(c.canvasx(w / 2), c.canvasy(h / 2), text=msg, fill=color, justify="center",
+                      font=(UI_FONT, 13, "bold"), width=max(200, w - 60), tags="empty_msg")
 
     def _ask_dir(self, start, title):
         # the folder may not exist yet (e.g. "<src>/_removed"): start from the nearest existing ancestor
@@ -806,7 +1221,8 @@ class App(tk.Tk):
         d = self._ask_dir(self.dst_var.get() or self.src_var.get(), "Select 'Move to' folder")
         if d:
             self.dst_var.set(os.path.normpath(d))
-            self.status.set(f"Move to: {self.dst_var.get()}")
+            self._refresh_folder_state()
+            self.status.set(t("dst_set", path=self.dst_var.get()))
 
     # ---------------- scanning / loading ----------------
     def rescan(self, silent=False):
@@ -821,6 +1237,8 @@ class App(tk.Tk):
             self.count_var.set("")
             msg = t("pick_src") if not self.src else t("folder_missing", path=self.src)
             self.status.set(msg)
+            self._draw_empty_msg()
+            self._refresh_folder_state()
             if not silent and self.src:
                 messagebox.showerror(t("folder_missing_title"),
                                      t("folder_missing_msg", path=self.src))
@@ -839,6 +1257,7 @@ class App(tk.Tk):
         self.loaded = 0
         self.ready_msg = None
         self.status.set(t("scanning", n=len(self.all_slides)))
+        self._refresh_folder_state()        # the 'press Enter / F5 to scan' hint is done
         threading.Thread(target=self._loader, args=(list(self.all_slides), self.src), daemon=True).start()
 
     # ---------------- view: filter + sort ----------------
@@ -851,6 +1270,9 @@ class App(tk.Tk):
         hidden = len(self.all_slides) - len(self.slides)
         self.count_var.set(t("shown", shown=len(self.slides), total=len(self.all_slides))
                            + (t("hidden_n", n=hidden) if hidden else ""))
+        # a filtered grid is easy to forget: tint the find box while it hides something
+        self.filter_entry.configure(bg=FILTER_BG if self.filter_var.get().strip() else "white")
+        self._refresh_selection_ui()
 
     def _sort_key_name(self):
         """The i18n key of the currently selected sort (the combobox shows a translated label)."""
@@ -1053,6 +1475,7 @@ class App(tk.Tk):
         c.configure(scrollregion=(0, 0, self.cols * (cw + PAD) + PAD, rows * (ch + PAD) + PAD))
         self._style_all()
         self._schedule_render(0)
+        self._draw_empty_msg()
 
     def _on_canvas_resize(self, e):
         cols = max(1, (e.width - PAD) // (self.cell_w + PAD))
@@ -1061,6 +1484,8 @@ class App(tk.Tk):
             self._layout()
         else:
             self._schedule_render()
+            if not self.slides:
+                self._draw_empty_msg()
 
     def _rows_per_page(self):
         return max(1, self.canvas.winfo_height() // (self.cell_h + PAD))
@@ -1095,6 +1520,7 @@ class App(tk.Tk):
         else:
             self.gamma = v
             self.gam_lbl.set(f"{v:.2f}")
+        self._update_adjust_btn()
         if self._enh_job is not None:
             self.after_cancel(self._enh_job)
         self._enh_job = self.after(120, self._redraw_all)
@@ -1270,6 +1696,7 @@ class App(tk.Tk):
         self._update_status_count()
 
     def _update_status_count(self):
+        self._refresh_selection_ui()
         n = sum(s.selected for s in self.all_slides)
         if n == 0:                      # nothing selected any more -> show the initial guidance again
             self.status.set(self.ready_msg or (t("sel_count", n=0, total=len(self.all_slides))
@@ -1489,11 +1916,9 @@ class App(tk.Tk):
             self.status.set(t("nothing_selected"))
             return
         dst = self.dst_var.get().strip()
-        if not dst:
-            messagebox.showerror(t("error"), t("set_dst_first"))
-            return
-        if os.path.abspath(dst) == os.path.abspath(self.src):
-            messagebox.showerror(t("error"), t("same_folder"))
+        problem = self._dst_problem()       # same rule that colours the 'Move to' box
+        if problem:
+            self._warn_folder(problem)
             return
         if not same_drive(self.src, dst):
             if not messagebox.askyesno(t("diff_drive_title"), t("diff_drive_msg")):

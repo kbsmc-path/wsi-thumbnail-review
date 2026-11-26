@@ -65,7 +65,7 @@ STRINGS = {
     "dst_folder": "이동 폴더",
     "rescan": "다시 스캔 (F5)",
     "move_sel": "선택 파일 이동 (Enter)",
-    "undo_btn": "이동 취소 (Ctrl+Z)",
+    "undo_btn": "되돌리기 (Ctrl+Z)",
     "group_btn": "그룹 지정 (G)",
     "sort": "정렬",
     "size": "크기",
@@ -152,6 +152,71 @@ STRINGS = {
     "dlg_exists": "[같은 이름이 이미 있음]",
     "dlg_no_block": "블록 항목이 없어 변경 불가",
     "dlg_clearing": "\n표시를 비웠으므로 기존 그룹 표시가 제거됩니다.\n",
+
+    # ---- wsi_review: toolbar layout, folder check, help (v1.1 GUI) ----
+    "step_src": "① 원본 폴더",
+    "step_dst": "② 이동 폴더",
+    "hint_src_empty": "먼저 원본 폴더를 지정하세요 — [찾아보기...] 또는 경로 입력 후 Enter",
+    "hint_src_missing": "폴더를 찾을 수 없습니다 — 경로를 확인하세요",
+    "hint_src_rescan": "Enter 또는 F5를 누르면 이 폴더를 스캔합니다",
+    "hint_dst_empty": "이동 폴더를 지정하세요 — 골라낸 슬라이드가 여기로 옮겨집니다",
+    "hint_dst_same": "원본 폴더와 같습니다 — 다른 폴더를 지정하세요",
+    "hint_dst_file": "폴더가 아니라 파일입니다 — 다른 경로를 지정하세요",
+    "hint_dst_new": "아직 없는 폴더 — 처음 이동할 때 만들어집니다",
+    "hint_dst_drive": "원본과 다른 드라이브 — 이동이 '복사 후 삭제'라서 느립니다",
+    "dst_not_folder": "이동 폴더 경로가 폴더가 아니라 파일입니다.",
+    "dst_set": "이동 폴더: {path}",
+    "grp_files": "파일 작업",
+    "grp_view": "보기",
+    "grp_find": "파일명 찾기 (Ctrl+F)",
+    "pill_none": "선택 없음",
+    "pill_sel": "{n}개 선택",
+    "pill_sel_hidden": "{n}개 선택 (숨김 {h})",
+    "adjust_btn": "화면 보정",
+    "help_btn": "단축키 (F1)",
+    "tip_browse_src": "검토할 슬라이드(.svs)가 있는 폴더를 고릅니다. 고르면 바로 스캔합니다.",
+    "tip_browse_dst": "골라낸 슬라이드를 옮길 폴더입니다. 없는 폴더도 됩니다(처음 이동할 때 생성).",
+    "tip_rescan": "원본 폴더를 다시 읽습니다 (F5)",
+    "tip_sel": "선택된 슬라이드 수 (빨간 테두리)\nCtrl+클릭·Space = 선택,  Shift+클릭 = 범위,  "
+               "Ctrl+A = 모두,  Esc = 해제",
+    "tip_move": "선택한 슬라이드를 이동 폴더로 옮깁니다 (Enter 또는 M)\n→ {dst}\n"
+                "Ctrl+Z로 되돌릴 수 있고, move_log.csv에 기록됩니다.",
+    "tip_move_nodst": "(이동 폴더 미지정)",
+    "tip_group": "선택한 H&E·면역염색 슬라이드를 한 그룹으로 묶습니다 (블록 이름 A → A_1)",
+    "tip_undo": "마지막 이동 또는 이름 변경을 되돌립니다",
+    "tip_size": "썸네일 크기 (+ / − 키)",
+    "tip_adjust": "채도·감마 보정 줄을 열고 닫습니다. 화면에만 적용되고 파일은 바뀌지 않습니다.\n"
+                  "● 표시 = 보정이 적용 중",
+    "tip_find": "파일명 일부를 입력하면 바로 걸러집니다.\nEnter 또는 Esc = 목록으로 돌아가기",
+    "tip_help": "전체 단축키 목록 (F1)",
+    "empty_pick_src": "① 원본 폴더를 먼저 지정하세요\n\n위쪽 [찾아보기...]를 누르거나 경로를 입력하고 Enter",
+    "empty_src_missing": "원본 폴더를 찾을 수 없습니다\n{path}\n\n경로를 확인하거나 [찾아보기...]로 다시 고르세요",
+    "empty_no_files": "이 폴더에는 슬라이드 파일(.svs / .tif)이 없습니다\n{path}",
+    "empty_filtered": "'{q}' 와(과) 일치하는 파일이 없습니다\n\n[지우기]를 누르면 모두 표시됩니다",
+    "help_title": "단축키",
+    "help_close": "닫기",
+    "help_body": "#선택\n"
+                 "클릭|크게 보기 (선택 아님)\n"
+                 "Ctrl+클릭 · Space|선택 / 해제 (빨간 테두리)\n"
+                 "Shift+클릭|범위 선택\n"
+                 "Ctrl+A · Esc|모두 선택 · 선택 해제\n"
+                 "← → ↑ ↓ · Home/End · PgUp/PgDn|슬라이드 사이 이동\n"
+                 "#파일 작업\n"
+                 "Enter · M|선택한 파일을 이동 폴더로 이동\n"
+                 "Ctrl+Z|마지막 이동 / 이름 변경 되돌리기\n"
+                 "G|선택한 파일 그룹 지정 (블록 A → A_1)\n"
+                 "#비교 · 미리보기\n"
+                 "P|비교용 고정 (같은 슬라이드에서 다시 P = 해제)\n"
+                 "Shift+P|고정 해제\n"
+                 "휠 · 드래그 · 더블클릭|미리보기 줌 · 이동 · 줌 초기화\n"
+                 "0|미리보기 줌 초기화\n"
+                 "#보기 · 폴더\n"
+                 "+ / −|썸네일 크기\n"
+                 "Ctrl+F|파일명 찾기\n"
+                 "F5|원본 폴더 다시 스캔\n"
+                 "F1 · ?|이 도움말",
+    "help_note": "경로·파일명 입력칸에 커서가 있을 때는 한 글자 단축키(M, P, G, Enter 등)가 동작하지 "
+                 "않습니다. Esc를 누르거나 썸네일을 클릭하면 다시 동작합니다.",
 
     # ---- svs_deid ----
     "deid_title": "SVS 메타데이터 비식별 도구",
@@ -334,6 +399,71 @@ STRINGS = {
     "dlg_exists": "[name already taken]",
     "dlg_no_block": "no block field — cannot rename",
     "dlg_clearing": "\nThe tag is empty, so existing group tags will be removed.\n",
+
+    # ---- wsi_review: toolbar layout, folder check, help (v1.1 GUI) ----
+    "step_src": "① Source",
+    "step_dst": "② Move to",
+    "hint_src_empty": "Choose the source folder first — [Browse...] or type a path and press Enter",
+    "hint_src_missing": "Folder not found — check the path",
+    "hint_src_rescan": "Press Enter or F5 to scan this folder",
+    "hint_dst_empty": "Choose where rejected slides go — they are moved into this folder",
+    "hint_dst_same": "Same as the source folder — choose a different one",
+    "hint_dst_file": "This is a file, not a folder — choose another path",
+    "hint_dst_new": "Does not exist yet — created on the first move",
+    "hint_dst_drive": "Different drive from the source — moves are copy + delete (slow)",
+    "dst_not_folder": "The 'Move to' path is a file, not a folder.",
+    "dst_set": "Move to: {path}",
+    "grp_files": "Files",
+    "grp_view": "View",
+    "grp_find": "Find by name (Ctrl+F)",
+    "pill_none": "none selected",
+    "pill_sel": "{n} selected",
+    "pill_sel_hidden": "{n} selected ({h} hidden)",
+    "adjust_btn": "Display",
+    "help_btn": "Shortcuts (F1)",
+    "tip_browse_src": "Pick the folder with the slides (.svs) to review. It is scanned right away.",
+    "tip_browse_dst": "Rejected slides are moved here. It may not exist yet (created on the first move).",
+    "tip_rescan": "Read the source folder again (F5)",
+    "tip_sel": "Number of selected slides (red border)\nCtrl+Click / Space = select,  "
+               "Shift+Click = range,  Ctrl+A = all,  Esc = clear",
+    "tip_move": "Move the selected slides to the 'Move to' folder (Enter or M)\n→ {dst}\n"
+                "Undo with Ctrl+Z; every move is written to move_log.csv.",
+    "tip_move_nodst": "(no 'Move to' folder yet)",
+    "tip_group": "Tie the selected H&E / IHC slides into one group (block A → A_1)",
+    "tip_undo": "Undo the last move or rename",
+    "tip_size": "Thumbnail size (+ / − keys)",
+    "tip_adjust": "Show / hide the saturation and gamma row. Display only — files are never changed.\n"
+                  "● = a correction is active",
+    "tip_find": "Type part of a file name to filter at once.\nEnter or Esc = back to the grid",
+    "tip_help": "All keyboard shortcuts (F1)",
+    "empty_pick_src": "① Choose the source folder first\n\nClick [Browse...] above, or type a path and press Enter",
+    "empty_src_missing": "Source folder not found\n{path}\n\nCheck the path or pick it again with [Browse...]",
+    "empty_no_files": "No slide files (.svs / .tif) in this folder\n{path}",
+    "empty_filtered": "No file matches '{q}'\n\nPress [Clear] to show everything",
+    "help_title": "Keyboard shortcuts",
+    "help_close": "Close",
+    "help_body": "#Selecting\n"
+                 "Click|show large (does not select)\n"
+                 "Ctrl+Click · Space|select / deselect (red border)\n"
+                 "Shift+Click|select a range\n"
+                 "Ctrl+A · Esc|select all · clear selection\n"
+                 "← → ↑ ↓ · Home/End · PgUp/PgDn|move between slides\n"
+                 "#Files\n"
+                 "Enter · M|move the selected files to the 'Move to' folder\n"
+                 "Ctrl+Z|undo the last move / rename\n"
+                 "G|group the selected files (block A → A_1)\n"
+                 "#Compare · preview\n"
+                 "P|pin for comparison (P again on the same slide = release)\n"
+                 "Shift+P|release the pin\n"
+                 "Wheel · drag · double-click|preview zoom · pan · reset\n"
+                 "0|reset preview zoom\n"
+                 "#View · folders\n"
+                 "+ / −|thumbnail size\n"
+                 "Ctrl+F|find by name\n"
+                 "F5|rescan the source folder\n"
+                 "F1 · ?|this help",
+    "help_note": "While the cursor is in a path or find box, the one-key shortcuts (M, P, G, Enter, ...) "
+                 "are off. Press Esc or click a thumbnail to turn them back on.",
 
     # ---- svs_deid ----
     "deid_title": "SVS Metadata De-identification",
