@@ -28,7 +28,7 @@ multi-GB slides appear in about a second, and the thumbnails are cached for inst
 
 ## Download (Windows, no Python needed)
 
-Download `WSI_Review.exe` from the [Releases](https://github.com/kbsmc-path/wsi-thumbnail-review/releases) page and
+Download `WSI_Review_v<version>.exe` from the [Releases](https://github.com/kbsmc-path/wsi-thumbnail-review/releases) page and
 double-click it (or drop a folder onto it). A console window opens alongside — it is the log window; close the review
 window to exit.
 
@@ -43,7 +43,11 @@ python -m pip install -r requirements.txt
 python wsi_review.py
 ```
 
-On Windows you can also double-click `run.bat` (uses `.venv` if present) or drag a folder onto it.
+On Windows you can also double-click `run.bat` or drag a folder onto it. Python does not have to be on PATH:
+`run.bat` looks for `.venv` in this folder, the `py` launcher, `python` on PATH, and the usual install folders
+(python.org per-user / all-users, `C:\Python3x`, Anaconda / Miniconda). If Pillow is missing it offers to install it
+into a private `.venv` here (the system Python is left alone); with no Python at all it offers to start
+`exe\WSI_Review_v*.exe` instead. `set WSI_REVIEW_CHECK=1` before running prints which Python it would use.
 Without git: **Code › Download ZIP** and keep all files in one folder (`wsi_review.py` needs `i18n.py` and
 `review_records.py`).
 
@@ -100,14 +104,17 @@ Notes
 SVS 파일에 들어 있는 작은 썸네일만 읽어 수백 장의 슬라이드를 빠르게 훑어보고, 중복되거나 정렬이 맞지 않는
 연속절편을 다른 폴더로 옮기거나(Ctrl+Z로 취소), H&E–면역염색 짝을 그룹으로 묶는 도구입니다.
 
-- **exe로 실행**: [Releases](https://github.com/kbsmc-path/wsi-thumbnail-review/releases)에서 `WSI_Review.exe`를 받아 더블클릭
+- **exe로 실행**: [Releases](https://github.com/kbsmc-path/wsi-thumbnail-review/releases)에서 `WSI_Review_v<버전>.exe`를 받아 더블클릭
   (Python 설치 불필요). 함께 뜨는 검은 창은 기록 창입니다.
 - **소스로 실행**: Python 3.8 이상 설치 후 이 폴더에서
   `python -m pip install -r requirements.txt` → `python wsi_review.py` (또는 `run.bat` 더블클릭).
   필요한 모듈이 없으면 무엇을 어떻게 설치해야 하는지 안내 창이 뜹니다.
+- **`run.bat`**: Python이 PATH에 없어도 됩니다. 이 폴더의 `.venv`, `py` 실행기, PATH의 `python`, 일반 설치 폴더
+  (python.org, `C:\Python3x`, Anaconda/Miniconda) 순으로 찾습니다. Pillow가 없으면 이 폴더의 `.venv`에 설치할지
+  묻고, Python이 아예 없으면 `exe\WSI_Review_v*.exe`를 대신 실행할지 묻습니다.
 - 사용 순서: 원본 폴더 지정 → [다시 스캔] → Ctrl+클릭으로 선택 → Enter로 이동 (Ctrl+Z 취소) → 필요하면 G로 그룹 지정.
   단축키는 위 Usage 표를 참고하세요.
-- **Registration 표시**: 추후 registration(회전·뒤집기 등)이 필요한 슬라이드에서 R (메모는 Shift+R). 원본 폴더의
+- **정합(registration) 표시**: 추후 정합(회전·뒤집기 등)이 필요한 슬라이드에서 R (메모는 Shift+R). 원본 폴더의
   `review_flags.csv`에 바로 저장되고, 그룹 이름변경·이동·되돌리기를 따라갑니다. Ctrl+R = 표시된 쌍만 보기.
 - **내보내기 (Ctrl+E)**: 원본 폴더에 `review_export_<시각>.xlsx`(시트: slides / excluded / registration / renames / info)와
   시트별 CSV를 만듭니다. excluded는 이동 폴더의 `move_log.csv`에서 되돌린 것을 뺀 목록이라 이전 작업도 포함됩니다.

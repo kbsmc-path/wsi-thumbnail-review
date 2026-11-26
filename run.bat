@@ -1,22 +1,109 @@
 @echo off
 rem WSI Thumbnail Review - double-click to start, or drag a folder onto this file.
-rem Uses .venv if present, otherwise the Python on PATH. Missing packages are reported with install steps.
+rem
+rem Needs Python 3.8+ (with tkinter) and Pillow. Python does NOT have to be on PATH: this file looks in
+rem   1. .venv next to this file      2. the "py" launcher      3. python / python3 on PATH
+rem   4. the usual install folders (python.org per-user / all-users, C:\Python3x, Anaconda / Miniconda)
+rem If Pillow is missing it offers to install it into a private .venv here (the system Python is not
+rem changed). With no Python at all it offers the stand-alone exe\WSI_Review_v*.exe instead.
+rem
+rem Troubleshooting:  set WSI_REVIEW_CHECK=1  before running prints the Python that would be used and stops.
+setlocal EnableExtensions
 cd /d "%~dp0"
 set "PY="
-if exist ".venv\Scripts\python.exe" set "PY=.venv\Scripts\python.exe"
-if not defined PY (
-    where python >nul 2>nul
-    if not errorlevel 1 set "PY=python"
+
+if exist ".venv\Scripts\python.exe" call :try ".venv\Scripts\python.exe"
+call :try py -3
+call :try python
+call :try python3
+for /d %%D in ("%LocalAppData%\Programs\Python\Python3*" "%ProgramFiles%\Python3*" "%SystemDrive%\Python3*") do call :try "%%~D\python.exe"
+for %%D in ("%UserProfile%\anaconda3" "%UserProfile%\miniconda3" "%LocalAppData%\anaconda3" "%LocalAppData%\miniconda3" "%ProgramData%\anaconda3" "%ProgramData%\miniconda3") do call :try "%%~D\python.exe"
+if not defined PY goto :no_python
+
+if defined WSI_REVIEW_CHECK (
+    echo Python: %PY%
+    %PY% -c "import sys; print(sys.version)"
 )
-if not defined PY (
-    where py >nul 2>nul
-    if not errorlevel 1 set "PY=py -3"
-)
-if not defined PY (
-    echo Python 3.8 or newer is required.
-    echo Install it from https://www.python.org/downloads/  ^(tick "Add python.exe to PATH"^), then run this again.
-    pause
-    exit /b 1
+
+%PY% -c "import tkinter" >nul 2>nul
+if errorlevel 1 goto :no_tkinter
+%PY% -c "import PIL.ImageTk" >nul 2>nul
+if errorlevel 1 goto :no_pillow
+
+:start
+if defined WSI_REVIEW_CHECK (
+    echo tkinter and Pillow: OK
+    exit /b 0
 )
 %PY% wsi_review.py %*
 if errorlevel 1 pause
+exit /b
+
+rem ---- %* = a Python command; keep the first one that really runs and is 3.8 or newer ----
+rem (running it, not "where": the Microsoft Store placeholder python.exe exists but is not Python)
+:try
+if defined PY exit /b
+if "%~2"=="" if not "%~x1"=="" if not exist "%~1" exit /b
+%* -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)" >nul 2>nul
+if not errorlevel 1 set PY=%*
+exit /b
+
+:no_pillow
+echo.
+echo  The Pillow package is not installed for this Python:
+echo      %PY%
+echo.
+echo  It can be installed into a private ".venv" folder next to this file
+echo  (needs an internet connection; your system Python is not changed).
+echo.
+choice /c YN /m "  Install it now"
+if errorlevel 2 goto :pillow_manual
+%PY% -m venv .venv
+if errorlevel 1 goto :pillow_manual
+".venv\Scripts\python.exe" -m pip install --disable-pip-version-check -r requirements.txt
+if errorlevel 1 goto :pillow_manual
+set PY=".venv\Scripts\python.exe"
+goto :start
+
+:pillow_manual
+echo.
+echo  Pillow was not installed. To install it yourself, run in this folder:
+echo      %PY% -m pip install -r requirements.txt
+goto :offer_exe
+
+:no_tkinter
+echo.
+echo  This Python has no tkinter (the GUI library):
+echo      %PY%
+echo  Reinstall Python from https://www.python.org/downloads/ and keep "tcl/tk and IDLE" ticked.
+goto :offer_exe
+
+:no_python
+echo.
+echo  Python 3.8 or newer was not found on this PC.
+echo  (looked for: .venv here, the py launcher, python on PATH, the usual install folders)
+echo.
+echo  Install it from https://www.python.org/downloads/  - tick "Add python.exe to PATH" -
+echo  or run:   winget install Python.Python.3.12
+goto :offer_exe
+
+:offer_exe
+set "EXE="
+for %%E in ("exe\WSI_Review_v*.exe" "WSI_Review_v*.exe") do set "EXE=%%~fE"
+if not defined EXE goto :no_exe
+echo.
+echo  The stand-alone program needs no Python:
+echo      %EXE%
+echo.
+choice /c YN /m "  Start it now"
+if errorlevel 2 exit /b 1
+start "" "%EXE%" %*
+exit /b 0
+
+:no_exe
+echo.
+echo  Or use the stand-alone WSI_Review_v*.exe (no Python needed) from
+echo      https://github.com/kbsmc-path/wsi-thumbnail-review/releases
+echo.
+pause
+exit /b 1

@@ -68,7 +68,7 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 MIN_PYTHON = (3, 8)
 
 
