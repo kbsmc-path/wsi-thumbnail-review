@@ -206,8 +206,8 @@ STRINGS = {
                  "Enter · M|선택한 파일을 이동 폴더로 이동\n"
                  "Ctrl+Z|마지막 이동 / 이름 변경 되돌리기\n"
                  "G|선택한 파일 그룹 지정 (블록 A → A_1)\n"
-                 "R · Shift+R|registration 필요 표시 / 해제 · 메모와 함께 표시\n"
-                 "Ctrl+R|표시된 쌍만 보기\n"
+                 "R · Shift+R|정합(registration) 필요 표시 / 해제 · 메모와 함께 표시\n"
+                 "Ctrl+R|정합 표시된 쌍만 보기\n"
                  "Ctrl+E|작업 내용 내보내기 (XLSX + CSV)\n"
                  "#비교 · 미리보기\n"
                  "P|비교용 고정 (같은 슬라이드에서 다시 P = 해제)\n"
@@ -222,22 +222,26 @@ STRINGS = {
     "help_note": "경로·파일명 입력칸에 커서가 있을 때는 한 글자 단축키(M, P, G, Enter 등)가 동작하지 "
                  "않습니다. Esc를 누르거나 썸네일을 클릭하면 다시 동작합니다.",
     # ---- wsi_review: registration flag / export ----
-    "reg_btn": "Registration",
-    "reg_toggle_mi": "Registration 필요 표시 / 해제   (R)",
-    "reg_note_mi": "메모 입력...   (Shift+R)",
-    "reg_only_mi": "표시된 쌍만 보기   (Ctrl+R)",
+    "reg_btn": "정합 표시 (R)",
+    "reg_note_btn": "정합 메모 (Shift+R)",
+    "reg_only_mi": "정합 표시만 (Ctrl+R)",
+    "reg_tag": "정합",
+    "tip_reg": "선택한 슬라이드(없으면 포커스된 슬라이드)를 '정합(registration) 필요'로 표시합니다.\nH&E와 위치·방향이 맞지 않는 염색 슬라이드에 표시하세요. 다시 누르면 해제됩니다.",
+    "tip_reg_note": "정합 표시와 함께 메모를 남깁니다 (rotate 180, flip 등)",
+    "tip_reg_only": "정합 표시된 슬라이드와 같은 블록의 짝만 보여 줍니다",
+    "tip_export": "남은 슬라이드 · 이동한 슬라이드 · 정합 표시 · 이름 변경 이력을\n엑셀(xlsx) 한 개와 CSV로 원본 폴더에 저장합니다",
     "export_btn": "내보내기 (Ctrl+E)",
-    "reg_badge_pair": "R 짝",
+    "reg_badge_pair": "정합 짝",
     "reg_nothing": "표시할 슬라이드가 없습니다 (클릭으로 포커스하거나 Ctrl+클릭으로 선택).",
-    "reg_on": "Registration 필요 표시: {name}{more}   (Shift+R = 메모, R = 해제)",
-    "reg_off": "Registration 표시 해제: {name}{more}",
+    "reg_on": "정합 필요 표시: {name}{more}   (Shift+R = 메모, R = 해제)",
+    "reg_off": "정합 표시 해제: {name}{more}",
     "reg_more": " 외 {n}개",
     "reg_noted": "메모 저장: {name}{more} → {note}",
-    "reg_count": "   ·  REG {n}개",
-    "reg_only_on": "   [표시된 쌍만 보기]",
+    "reg_count": "   ·  정합 {n}개",
+    "reg_only_on": "   [정합 표시만 보기]",
     "reg_save_failed": "{path} 저장 실패 (표시는 이번 실행 동안만 유지됩니다): {e}",
-    "reg_dlg_title": "Registration 메모",
-    "reg_dlg_info": "{n}개 슬라이드를 '추후 registration 필요'로 표시합니다.\n"
+    "reg_dlg_title": "정합 메모",
+    "reg_dlg_info": "{n}개 슬라이드를 '추후 정합(registration) 필요'로 표시합니다.\n"
                     "같은 accession + 블록(그룹 표시 포함)의 짝은 내보내기에 함께 기록됩니다.",
     "reg_dlg_note": "메모:",
     "reg_dlg_presets": "빠른 입력 (클릭 또는 Ctrl+1~5, 여러 개 가능):",
@@ -508,12 +512,16 @@ STRINGS = {
     "help_note": "While the cursor is in a path or find box, the one-key shortcuts (M, P, G, Enter, ...) "
                  "are off. Press Esc or click a thumbnail to turn them back on.",
     # ---- wsi_review: registration flag / export ----
-    "reg_btn": "Registration",
-    "reg_toggle_mi": "Flag / unflag: needs registration   (R)",
-    "reg_note_mi": "Note...   (Shift+R)",
-    "reg_only_mi": "Show flagged pairs only   (Ctrl+R)",
+    "reg_btn": "Flag REG (R)",
+    "reg_note_btn": "REG note (Shift+R)",
+    "reg_only_mi": "REG only (Ctrl+R)",
+    "reg_tag": "REG",
+    "tip_reg": "Flag the selected slides (else the focused one) as 'needs registration'.\nFlag the stained slide that does not line up with its H&E. Press again to unflag.",
+    "tip_reg_note": "Flag with a note (rotate 180, flip...)",
+    "tip_reg_only": "Show only flagged slides and their partners in the same block",
+    "tip_export": "Save the remaining slides, the moved slides, the registration flags and\nthe rename history as one .xlsx plus CSV files in the source folder",
     "export_btn": "Export (Ctrl+E)",
-    "reg_badge_pair": "R pair",
+    "reg_badge_pair": "REG pair",
     "reg_nothing": "Nothing to flag (click a slide to focus it, or Ctrl+Click to select).",
     "reg_on": "Flagged for registration: {name}{more}   (Shift+R = note, R = unflag)",
     "reg_off": "Registration flag removed: {name}{more}",

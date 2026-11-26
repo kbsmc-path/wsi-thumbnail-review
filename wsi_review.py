@@ -929,6 +929,8 @@ class App(tk.Tk):
                                  font=(UI_FONT, 9, "bold"), padx=8, pady=0, cursor="hand2")
         self.adj_btn.pack(side=tk.LEFT, padx=(10, 0))
         Tooltip(self.adj_btn, t("tip_adjust"))
+        self.view_slot = ttk.Frame(g)          # further view filters (registration: flagged only)
+        self.view_slot.pack(side=tk.LEFT)
         flow.add(g)
 
         # find by name
@@ -2121,22 +2123,23 @@ class App(tk.Tk):
         self._undo_inflight = None          # batch of the running undo, for the flags
 
     def _build_review_records_ui(self, bar):
-        """Registration menu + Export button (right end of the action bar) and their keys.
-        Packed `before` the existing widgets so a narrow window clips those first, not these."""
-        first = (bar.pack_slaves() or [None])[0]
-        where = {"before": first} if first is not None else {}
-        exp = ttk.Button(bar, text=t("export_btn"), command=self.export_records)
-        exp.pack(side=tk.RIGHT, **where)
-        mb = ttk.Menubutton(bar, text=t("reg_btn"))
-        menu = tk.Menu(mb, tearoff=False)
+        """Registration buttons + Export button in the file-action group, the 'flagged only'
+        filter in the View group, and their keys. Plain buttons like the rest of the toolbar."""
+        b = ttk.Button(bar, text=t("reg_btn"), command=self.toggle_registration)
+        b.pack(side=tk.LEFT, padx=(4, 0))
+        Tooltip(b, t("tip_reg"))
+        b = ttk.Button(bar, text=t("reg_note_btn"), command=self.edit_registration_note)
+        b.pack(side=tk.LEFT, padx=(4, 0))
+        Tooltip(b, t("tip_reg_note"))
+        b = ttk.Button(bar, text=t("export_btn"), command=self.export_records)
+        b.pack(side=tk.LEFT, padx=(4, 0))
+        Tooltip(b, t("tip_export"))
         self.reg_only_var = tk.BooleanVar(value=self.reg_only)
-        menu.add_command(label=t("reg_toggle_mi"), command=self.toggle_registration)
-        menu.add_command(label=t("reg_note_mi"), command=self.edit_registration_note)
-        menu.add_separator()
-        menu.add_checkbutton(label=t("reg_only_mi"), variable=self.reg_only_var,
-                             command=lambda: self._set_reg_only(self.reg_only_var.get()))
-        mb["menu"] = menu
-        mb.pack(side=tk.RIGHT, padx=6, after=exp)      # Export rightmost, Registration left of it
+        cb = ttk.Checkbutton(self.view_slot, text=t("reg_only_mi"), variable=self.reg_only_var,
+                             command=lambda: (self._set_reg_only(self.reg_only_var.get()),
+                                              self.focus_set()))
+        cb.pack(side=tk.LEFT, padx=(10, 0))
+        Tooltip(cb, t("tip_reg_only"))
         for seq, fn in (("<r>", self.toggle_registration),
                         ("<R>", self.edit_registration_note),                 # Shift+R
                         ("<Control-r>", lambda: self._set_reg_only(not self.reg_only)),
@@ -2293,12 +2296,12 @@ class App(tk.Tk):
         return (t("reg_count", n=n) if n else "") + (t("reg_only_on") if self.reg_only else "")
 
     def _reg_label_prefix(self, s):
-        return "[REG] " if self.flags.is_flagged(s.name) else ""
+        return f"[{t('reg_tag')}] " if self.flags.is_flagged(s.name) else ""
 
     def _reg_title_tag(self, s):
         if self.flags.is_flagged(s.name):
             note = self.flags.note(s.name)
-            return f"[REG{': ' + note if note else ''}] "
+            return f"[{t('reg_tag')}{': ' + note if note else ''}] "
         k = rr.pair_key(s.name)
         if k is not None and k in self.flags.active_pair_keys():
             return f"[{t('reg_badge_pair')}] "
@@ -2319,13 +2322,13 @@ class App(tk.Tk):
                 continue
             if flagged:
                 note = self.flags.note(s.name)
-                text = "REG" + (f" · {note}" if note else "")
+                text = t("reg_tag") + (f" · {note}" if note else "")
             else:
                 text = t("reg_badge_pair")
             if len(text) > max_chars:
                 text = text[:max_chars - 1] + "…"
             x, y = self._cell_xy(i)
-            tx = c.create_text(x + 12, y + 10, anchor="nw", text=text, font=("Segoe UI", 9, "bold"),
+            tx = c.create_text(x + 12, y + 10, anchor="nw", text=text, font=(UI_FONT, 9, "bold"),
                                fill="#1a1a1a" if flagged else COLOR_REG, tags=("regbadge",))
             x0, y0, x1, y1 = c.bbox(tx)
             box = c.create_rectangle(x0 - 4, y0 - 1, x1 + 4, y1 + 1, width=2, outline=COLOR_REG,
