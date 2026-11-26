@@ -157,6 +157,27 @@ CACHE_DIR = ".wsi_thumbs"
 LOAD_THREADS = 4        # parallel thumbnail readers (I/O bound)
 POLL_BATCH = 20         # queue items handled per UI tick
 EXTS = (".svs", ".tif", ".tiff")
+# Never decode a page bigger than this. Pillow cannot decode a TIFF page at reduced size (draft() only
+# works for plain JPEG files), so a file without a small pyramid level would otherwise be decoded at
+# full resolution - many GB of RAM per file.
+MAX_THUMB_PIXELS = 100_000_000
+
+
+def norm_path(p):
+    """Comparable form of a path: absolute, normalised, case-folded on Windows."""
+    return os.path.normcase(os.path.normpath(os.path.abspath(p)))
+
+
+def open_csv_log(path):
+    """Open a CSV log for appending. Returns (file, writer, is_new); raises OSError if it cannot be
+    opened (typically: the file is open in Excel, which locks it).
+
+    A new file starts with a UTF-8 BOM so Excel shows Korean file names correctly; an existing file is
+    appended to as plain UTF-8, so no BOM ends up in the middle of it.
+    """
+    new = not os.path.exists(path) or os.path.getsize(path) == 0
+    fh = open(path, "a", newline="", encoding="utf-8-sig" if new else "utf-8")
+    return fh, csv.writer(fh), new
 
 def app_dir():
     """Folder the program 'lives' in.
@@ -340,19 +361,32 @@ def pick_thumbnail_page(path):
     return idx, reason, info
 
 
-def extract_thumbnail(path):
-    """Return the embedded thumbnail (smallest pyramid level) of an Aperio SVS.
-    Label / macro pages are never used; level 0 is never decoded."""
-    idx, _, _ = pick_thumbnail_page(path)
+def read_thumbnail(path):
+    """Return (thumbnail, page_index, reason) for a slide: the smallest page that is not a label /
+    macro, decoded as is (only shrunk afterwards if it is wider than 2000 px).
+
+    A page larger than MAX_THUMB_PIXELS is never decoded - the file has no thumbnail level (e.g. a
+    single-page TIFF, or a pyramid stored in SubIFDs), and decoding it would need gigabytes of RAM.
+    """
+    idx, reason, _ = pick_thumbnail_page(path)
     im = Image.open(path)
-    im.seek(idx)
-    if im.size[0] > 4000:                  # no small level at all: decode a reduced copy
-        im.draft("RGB", (2000, 2000))
-    thumb = im.copy()
-    im.close()
+    try:
+        im.seek(idx)
+        w, h = im.size
+        if w * h > MAX_THUMB_PIXELS:
+            raise ValueError(f"no thumbnail level in this file: the smallest usable page is {w}x{h} "
+                             f"({w * h / 1e6:.0f} Mpx) and is not decoded")
+        thumb = im.copy()
+    finally:
+        im.close()
     if thumb.size[0] > 2000:
         thumb.thumbnail((1920, 1920))
-    return thumb
+    return thumb, idx, reason
+
+
+def extract_thumbnail(path):
+    """Return the embedded thumbnail (smallest non-label/macro page) of a slide; see read_thumbnail()."""
+    return read_thumbnail(path)[0]
 
 
 def check_folder(folder):
@@ -375,7 +409,7 @@ def check_folder(folder):
         i, size, desc, _ = info[idx]
         w, h = size
         flag = ""
-        if "label" in desc.lower() or "macro" in desc.lower() or w < 500:
+        if "label" in desc.lower() or "macro" in desc.lower() or w < 500 or w * h > MAX_THUMB_PIXELS:
             flag = "  <-- CHECK"
             bad += 1
         print(f"page {idx} {w}x{h:<5} {f}{flag}")
@@ -433,7 +467,10 @@ def load_cached(src_dir, path):
             return Image.open(tp).convert("RGB")
         except Exception as e:  # noqa - corrupt cache file: rebuild it
             log.warning("cache file unreadable, rebuilding: %s (%s)", name, e)
-            os.remove(tp)
+            try:
+                os.remove(tp)
+            except OSError:
+                pass                    # read-only cache: extract again below, just do not cache
     size = os.path.getsize(path)
     if size == 0:
         raise ValueError("empty file (0 bytes)")
@@ -441,20 +478,20 @@ def load_cached(src_dir, path):
         raise ValueError(f"file too small to be a slide ({size} bytes)")
     t0 = time.time()
     try:
-        idx, reason, info = pick_thumbnail_page(path)
+        thumb, idx, reason = read_thumbnail(path)
     except Image.UnidentifiedImageError:
         raise ValueError("not a readable TIFF/SVS (corrupt or incomplete file)")
-    im = Image.open(path)
-    im.seek(idx)
-    if im.size[0] > 4000:
-        im.draft("RGB", (2000, 2000))
-    thumb = im.copy()
-    im.close()
-    if thumb.size[0] > 2000:
-        thumb.thumbnail((1920, 1920))
     thumb = thumb.convert("RGB")
-    os.makedirs(os.path.dirname(tp), exist_ok=True)
-    thumb.save(tp, quality=90)
+    try:
+        os.makedirs(os.path.dirname(tp), exist_ok=True)
+        thumb.save(tp, quality=90)
+    except OSError as e:                # read-only folder, disk full, ...: show it anyway, uncached
+        log.warning("cannot write thumbnail cache for %s (%s) - shown without caching", name, e)
+        try:
+            if os.path.isfile(tp):
+                os.remove(tp)           # do not leave a half-written cache file behind
+        except OSError:
+            pass
     log.info("extracted  %-50s page %d %dx%d  %.2fs  (%s)", name, idx, thumb.size[0], thumb.size[1],
              time.time() - t0, reason)
     return thumb
@@ -516,6 +553,15 @@ def apply_group(name, suffix):
     m = GROUP_RE.match(parts[BLOCK_FIELD].strip())
     parts[BLOCK_FIELD] = m.group("base") + suffix
     return ",".join(parts) + ext
+
+
+BAD_SUFFIX_CHARS = '<>:"/\\|?*,'
+
+
+def suffix_ok(suffix):
+    """A group tag may not contain path separators, "..", commas (the field separator) or characters
+    Windows does not allow in file names."""
+    return not (".." in suffix or any(c in BAD_SUFFIX_CHARS or ord(c) < 32 for c in suffix))
 
 
 def next_group_suffix(names, accession, base_block):
@@ -1248,6 +1294,9 @@ class App(tk.Tk):
             return ""
 
     def _pick_src(self):
+        if self.busy:                   # a move / rename / undo is running on the current folder
+            self.status.set(t("busy"))
+            return
         d = self._ask_dir(self.src_var.get(), "Select source folder (SVS files)")
         if d:
             self.src_var.set(os.path.normpath(d))
@@ -1263,6 +1312,9 @@ class App(tk.Tk):
     # ---------------- scanning / loading ----------------
     def rescan(self, silent=False):
         """Scan the source folder. `silent` suppresses the 'not found' dialog (used at startup)."""
+        if self.busy:                   # rescanning mid-move would list files that are still moving
+            self.status.set(t("busy"))
+            return
         self.src = self.src_var.get().strip()
         self._reg_load()
         if not self.src or not os.path.isdir(self.src):
@@ -1378,15 +1430,15 @@ class App(tk.Tk):
                 thumb = load_cached(src, s.path)
                 mid = thumb.copy()
                 mid.thumbnail((SIZES[-1][1], SIZES[-1][1]))
-                self.q.put(("thumb", s, thumb, mid, None))
+                self.q.put(("thumb", s, thumb, mid, None, quiet))
             except ValueError as e:                     # expected: empty / corrupt / unreadable file
                 log.error("ERROR      %-50s %s", s.name, e)
                 errors.append(s.name)
-                self.q.put(("thumb", s, None, None, str(e)))
+                self.q.put(("thumb", s, None, None, str(e), quiet))
             except Exception as e:  # noqa               # unexpected: keep the traceback in the log
                 log.error("ERROR      %-50s %s: %s\n%s", s.name, type(e).__name__, e, traceback.format_exc())
                 errors.append(s.name)
-                self.q.put(("thumb", s, None, None, f"{type(e).__name__}: {e}"))
+                self.q.put(("thumb", s, None, None, f"{type(e).__name__}: {e}", quiet))
 
         with ThreadPoolExecutor(max_workers=LOAD_THREADS) as ex:
             list(ex.map(work, cached))          # instant: only reads small cached JPEGs
@@ -1399,52 +1451,72 @@ class App(tk.Tk):
         if not quiet:
             self.q.put(("done", dt, len(cached), len(missing)))
 
+    def _window_alive(self):
+        try:
+            return bool(self.winfo_exists())
+        except tk.TclError:
+            return False
+
     def _poll_queue(self):
         got_thumbs = False
-        try:
-            for _ in range(POLL_BATCH):
+        for _ in range(POLL_BATCH):
+            try:
                 item = self.q.get_nowait()
-                kind = item[0]
-                if kind == "plan":
-                    self.status.set(t("plan", cached=item[1], missing=item[2]))
-                elif kind == "done":
-                    errs = sum(1 for s in self.all_slides if s.error)
-                    msg = t("ready", n=len(self.all_slides), sec=item[1],
-                            cached=item[2], fresh=item[3] - errs)
-                    msg += t("ready_err", errs=errs) if errs else ")"
-                    self.ready_msg = msg + t("ready_hint")
-                    self.status.set(self.ready_msg)
-                    self._apply_view()
-                elif kind == "thumb":
-                    _, s, thumb, mid, err = item
-                    if s.rect is None:          # slide list was rebuilt meanwhile
-                        continue
-                    s.thumb, s.mid, s.error = thumb, mid, err
+            except queue.Empty:
+                break
+            kind = item[0]
+            try:
+                if self._handle_queue_item(item):
                     got_thumbs = True
-                    self.loaded += 1
-                    if self.loaded % 10 == 0:
-                        self.status.set(t("loading", done=self.loaded, total=len(self.all_slides)))
-                    if err and s in self.slides:
-                        self._style_cell(s, self.slides.index(s))
-                        self._layout_error_text(s)
-                    if self.focus_idx is not None and self.slides[self.focus_idx] is s:
-                        self._update_preview()
-                elif kind == "moved":
-                    self._on_move_done(item[1], item[2], item[3])
-                elif kind == "renamed":
-                    self._on_rename_done(item[1], item[2])
-                elif kind == "undone":
-                    self._on_undo_done(item[1], item[2], item[3])
-        except queue.Empty:
-            pass
-        except tk.TclError:          # window closed while loading
-            return
+            except Exception as e:  # noqa - one bad item must not stop the polling loop
+                if isinstance(e, tk.TclError) and not self._window_alive():
+                    self._poll_job = None           # window closed while loading
+                    return
+                log.exception("internal error while handling %r", kind)
+                if kind in ("moved", "renamed", "undone"):
+                    self.busy = False               # never leave the app stuck in 'busy'
         try:
             if got_thumbs:
                 self._schedule_render(20)
             self._poll_job = self.after(30, self._poll_queue)
         except tk.TclError:          # window closed
             self._poll_job = None
+
+    def _handle_queue_item(self, item):
+        """Apply one message from a worker thread. Returns True if a thumbnail arrived."""
+        kind = item[0]
+        if kind == "plan":
+            self.status.set(t("plan", cached=item[1], missing=item[2]))
+        elif kind == "done":
+            errs = sum(1 for s in self.all_slides if s.error)
+            msg = t("ready", n=len(self.all_slides), sec=item[1],
+                    cached=item[2], fresh=item[3] - errs)
+            msg += t("ready_err", errs=errs) if errs else ")"
+            self.ready_msg = msg + t("ready_hint")
+            self.status.set(self.ready_msg)
+            self._apply_view()
+        elif kind == "thumb":
+            _, s, thumb, mid, err, quiet = item
+            if s.rect is None:          # slide list was rebuilt meanwhile
+                return False
+            s.thumb, s.mid, s.error = thumb, mid, err
+            if not quiet:               # a quiet reload must not overwrite the undo / move message
+                self.loaded += 1
+                if self.loaded % 10 == 0:
+                    self.status.set(t("loading", done=self.loaded, total=len(self.all_slides)))
+            if err and s in self.slides:
+                self._style_cell(s, self.slides.index(s))
+                self._layout_error_text(s)
+            if self.focus_idx is not None and self.slides[self.focus_idx] is s:
+                self._update_preview()
+            return True
+        elif kind == "moved":
+            self._on_move_done(item[1], item[2], item[3])
+        elif kind == "renamed":
+            self._on_rename_done(item[1], item[2])
+        elif kind == "undone":
+            self._on_undo_done(item[1], item[2], item[3], item[4])
+        return False
 
     # ---------------- grid (canvas) ----------------
     def _build_items(self):
@@ -1467,13 +1539,18 @@ class App(tk.Tk):
         folder: thumbnails already in memory are kept, the scroll position stays where the user was, and
         the first restored slide gets the focus so it is visible. Returns the slides actually inserted."""
         added = []
+        have = {norm_path(s.path) for s in self.all_slides}
         for s in slides:
-            if s in self.all_slides or not os.path.exists(s.path):
+            p = norm_path(s.path)
+            if p in have or not os.path.exists(s.path):     # by path: never show a file twice
                 continue
+            have.add(p)
             self._make_items(s)
             s.selected = False
             self.all_slides.append(s)
             added.append(s)
+        if added:
+            self.ready_msg = None       # its slide count is out of date now
         self._apply_view()
         shown = [s for s in added if s in self.slides]
         if shown:
@@ -1974,38 +2051,49 @@ class App(tk.Tk):
         threading.Thread(target=self._rename_worker, args=(pairs, self.src), daemon=True).start()
 
     def _rename_worker(self, pairs, folder):
+        # whatever happens, the result is always reported back (otherwise the app stays 'busy')
         done, errors = [], []
         log_path = os.path.join(folder, "rename_log.csv")
-        new_log = not os.path.exists(log_path)
-        with open(log_path, "a", newline="", encoding="utf-8") as fh:
-            wr = csv.writer(fh)
-            if new_log:
-                wr.writerow(["time", "action", "from", "to"])
-            for s, new_name in pairs:
-                target = os.path.join(folder, new_name)
-                if os.path.abspath(target) == os.path.abspath(s.path):
-                    continue
-                if os.path.exists(target):
-                    log.error("  RENAME SKIPPED (already exists) %s", new_name)
-                    errors.append(t("rename_exists", name=new_name))
-                    continue
-                try:
-                    old_cache = cache_path(folder, s.path)     # before the rename
-                except OSError:
-                    old_cache = None
-                try:
-                    os.rename(s.path, target)
-                except Exception as e:  # noqa
-                    log.error("  RENAME FAILED %s: %s", s.name, e)
-                    errors.append(f"{s.name}: {e}")
-                    continue
-                kept = move_cache(folder, old_cache, target)
-                log.info("  renamed  %-45s -> %-45s (thumbnail cache %s)", s.name, new_name,
-                         "moved" if kept else "none")
-                wr.writerow([time.strftime("%Y-%m-%d %H:%M:%S"), "rename", s.path, target])
-                done.append((s, s.path, target))
-                s.path, s.name = target, new_name
-        self.q.put(("renamed", done, errors))
+        try:
+            try:
+                fh, wr, new_log = open_csv_log(log_path)
+            except OSError as e:        # no log -> no rename: every change must be recorded
+                log.error("  RENAME ABORTED - cannot open %s: %s", log_path, e)
+                errors.append(t("log_locked", path=log_path, err=e))
+                return
+            with fh:
+                if new_log:
+                    wr.writerow(["time", "action", "from", "to"])
+                for s, new_name in pairs:
+                    target = os.path.join(folder, new_name)
+                    if os.path.abspath(target) == os.path.abspath(s.path):
+                        continue
+                    if os.path.exists(target):
+                        log.error("  RENAME SKIPPED (already exists) %s", new_name)
+                        errors.append(t("rename_exists", name=new_name))
+                        continue
+                    try:
+                        old_cache = cache_path(folder, s.path)     # before the rename
+                    except OSError:
+                        old_cache = None
+                    try:
+                        os.rename(s.path, target)
+                    except Exception as e:  # noqa
+                        log.error("  RENAME FAILED %s: %s", s.name, e)
+                        errors.append(f"{s.name}: {e}")
+                        continue
+                    old_path, old_name = s.path, s.name
+                    done.append((s, old_path, target))          # renamed on disk: undoable from now
+                    s.path, s.name = target, new_name
+                    kept = move_cache(folder, old_cache, target)
+                    log.info("  renamed  %-45s -> %-45s (thumbnail cache %s)", old_name, new_name,
+                             "moved" if kept else "none")
+                    wr.writerow([time.strftime("%Y-%m-%d %H:%M:%S"), "rename", old_path, target])
+        except Exception as e:  # noqa
+            log.exception("rename worker stopped")
+            errors.append(t("worker_error", err=f"{type(e).__name__}: {e}"))
+        finally:
+            self.q.put(("renamed", done, errors))
 
     def _on_rename_done(self, done, errors):
         self.busy = False
@@ -2061,6 +2149,7 @@ class App(tk.Tk):
             if s in self.slides:
                 self.slides.remove(s)
         self.focus_idx = min(first, len(self.slides) - 1) if self.slides else None
+        self.ready_msg = None           # its slide count is out of date now
         self._layout()
         self._update_preview()
         self._update_count()
@@ -2070,32 +2159,46 @@ class App(tk.Tk):
         threading.Thread(target=self._move_worker, args=(sel, dst), daemon=True).start()
 
     def _move_worker(self, sel, dst):
+        # whatever happens, the result is always reported back (otherwise the app stays 'busy' and
+        # the slides already taken off the grid never come back)
         moved, errors, failed = [], [], []
         log_path = os.path.join(dst, "move_log.csv")
-        new_log = not os.path.exists(log_path)
-        with open(log_path, "a", newline="", encoding="utf-8") as fh:
-            wr = csv.writer(fh)
-            if new_log:
-                wr.writerow(["time", "action", "from", "to"])
-            for s in sel:
-                target = os.path.join(dst, s.name)
-                base, ext = os.path.splitext(s.name)
-                k = 1
-                while os.path.exists(target):
-                    target = os.path.join(dst, f"{base}_({k}){ext}")
-                    k += 1
-                try:
-                    t0 = time.time()
-                    shutil.move(s.path, target)
-                    log.info("  moved    %-50s -> %s  (%.1fs)", s.name, target, time.time() - t0)
-                except Exception as e:  # noqa
-                    log.error("  MOVE FAILED %s: %s", s.name, e)
-                    errors.append(f"{s.name}: {e}")
-                    failed.append(s)
-                    continue
-                wr.writerow([time.strftime("%Y-%m-%d %H:%M:%S"), "move", s.path, target])
-                moved.append((s, s.path, target))
-        self.q.put(("moved", moved, errors, failed))
+        try:
+            try:
+                fh, wr, new_log = open_csv_log(log_path)
+            except OSError as e:        # no log -> no move: every move must be recorded
+                log.error("  MOVE ABORTED - cannot open %s: %s", log_path, e)
+                errors.append(t("log_locked", path=log_path, err=e))
+                failed = list(sel)
+                return
+            with fh:
+                if new_log:
+                    wr.writerow(["time", "action", "from", "to"])
+                for s in sel:
+                    target = os.path.join(dst, s.name)
+                    base, ext = os.path.splitext(s.name)
+                    k = 1
+                    while os.path.exists(target):
+                        target = os.path.join(dst, f"{base}_({k}){ext}")
+                        k += 1
+                    try:
+                        t0 = time.time()
+                        shutil.move(s.path, target)
+                        log.info("  moved    %-50s -> %s  (%.1fs)", s.name, target, time.time() - t0)
+                    except Exception as e:  # noqa
+                        log.error("  MOVE FAILED %s: %s", s.name, e)
+                        errors.append(f"{s.name}: {e}")
+                        failed.append(s)
+                        continue
+                    moved.append((s, s.path, target))           # moved on disk: undoable from now
+                    wr.writerow([time.strftime("%Y-%m-%d %H:%M:%S"), "move", s.path, target])
+        except Exception as e:  # noqa
+            log.exception("move worker stopped")
+            errors.append(t("worker_error", err=f"{type(e).__name__}: {e}"))
+            done = {id(m[0]) for m in moved} | {id(s) for s in failed}
+            failed += [s for s in sel if id(s) not in done]     # not tried: still in the source folder
+        finally:
+            self.q.put(("moved", moved, errors, failed))
 
     def _on_move_done(self, moved, errors, failed):
         self.busy = False
@@ -2124,48 +2227,78 @@ class App(tk.Tk):
         threading.Thread(target=self._undo_worker, args=(kind, batch), daemon=True).start()
 
     def _undo_worker(self, kind, batch):
-        dst = os.path.dirname(batch[0][2])
-        log_path = os.path.join(dst, "rename_log.csv" if kind == "rename" else "move_log.csv")
-        restored, errors = [], []
-        with open(log_path, "a", newline="", encoding="utf-8") as fh:
-            wr = csv.writer(fh)
-            for s, orig, target in batch:
-                try:
-                    if kind == "rename":
-                        folder = os.path.dirname(target)
-                        try:
-                            old_cache = cache_path(folder, target)   # before the rename
-                        except OSError:
-                            old_cache = None
-                        os.rename(target, orig)
-                        move_cache(folder, old_cache, orig)
+        # whatever happens, the result is always reported back; entries that were not restored are
+        # returned in `left` and go back on the undo stack, so Ctrl+Z can try them again
+        restored, errors, left = [], [], []
+        pos = 0                         # batch[pos:] has not been tried yet
+        try:
+            dst = os.path.dirname(batch[0][2])
+            log_path = os.path.join(dst, "rename_log.csv" if kind == "rename" else "move_log.csv")
+            try:
+                fh, wr, new_log = open_csv_log(log_path)
+            except OSError as e:        # no log -> no undo: every change must be recorded
+                log.error("  UNDO ABORTED - cannot open %s: %s", log_path, e)
+                errors.append(t("log_locked", path=log_path, err=e))
+                return
+            with fh:
+                if new_log:
+                    wr.writerow(["time", "action", "from", "to"])
+                for entry in batch:
+                    s, orig, target = entry
+                    pos += 1
+                    try:
+                        # never overwrite: another file may have taken the original name since
+                        if os.path.exists(orig) and norm_path(orig) != norm_path(target):
+                            raise FileExistsError(t("undo_exists", path=orig))
+                        if kind == "rename":
+                            folder = os.path.dirname(target)
+                            try:
+                                old_cache = cache_path(folder, target)   # before the rename
+                            except OSError:
+                                old_cache = None
+                            os.rename(target, orig)
+                            move_cache(folder, old_cache, orig)
+                        else:
+                            shutil.move(target, orig)
                         s.path, s.name = orig, os.path.basename(orig)
-                    else:
-                        shutil.move(target, orig)
-                        s.path, s.name = orig, os.path.basename(orig)
+                    except Exception as e:  # noqa
+                        log.error("  UNDO FAILED %s: %s", os.path.basename(target), e)
+                        errors.append(f"{os.path.basename(target)}: {e}")
+                        left.append(entry)
+                        continue
+                    restored.append(s)
                     log.info("  restored %-50s -> %s", os.path.basename(target), orig)
                     wr.writerow([time.strftime("%Y-%m-%d %H:%M:%S"), "undo", target, orig])
-                    restored.append(s)
-                except Exception as e:  # noqa
-                    log.error("  UNDO FAILED %s: %s", os.path.basename(target), e)
-                    errors.append(f"{os.path.basename(target)}: {e}")
-        self.q.put(("undone", kind, restored, errors))
+        except Exception as e:  # noqa
+            log.exception("undo worker stopped")
+            errors.append(t("worker_error", err=f"{type(e).__name__}: {e}"))
+        finally:
+            left.extend(batch[pos:])
+            self.q.put(("undone", kind, restored, errors, left))
 
-    def _on_undo_done(self, kind, restored, errors):
+    def _on_undo_done(self, kind, restored, errors, left):
         self.busy = False
         self._reg_on_undone(kind, restored)
+        if left:                        # not restored: keep them so Ctrl+Z can try again
+            self.undo_stack.append((kind, left))
         if errors:
-            messagebox.showerror(t("undo_failed"), "\n".join(errors[:10]), parent=self)
-        same_folder = all(os.path.normcase(os.path.dirname(s.path)) == os.path.normcase(self.src)
-                          for s in restored)
-        if not same_folder:             # the source folder changed since the move - start over
+            msg = "\n".join(errors[:10])
+            if left:
+                msg += "\n\n" + t("undo_left", n=len(left))
+            messagebox.showerror(t("undo_failed"), msg, parent=self)
+        src = norm_path(self.src) if self.src else None
+        same_folder = all(norm_path(os.path.dirname(s.path)) == src for s in restored)
+        # a rename undo updates the Slide objects it recorded; after a rescan the grid holds new ones
+        stale = kind == "rename" and any(s not in self.all_slides for s in restored)
+        if not same_folder or stale:    # the folder / grid changed since the move - start over
             self.rescan()
         elif kind == "move":
             self._insert_slides(restored)   # back into the grid: no rescan, no thumbnail reload
         else:                           # rename: names changed, re-sort and relabel in place
             self._apply_view()
             self._style_all()
-        self.status.set(t("undo_done", n=len(restored)) + t("ready_hint"))
+        self.status.set(t("undo_done", n=len(restored))
+                        + ("  " + t("undo_left", n=len(left)) if left else "") + t("ready_hint"))
 
     # ---------------- registration flags + export (logic: review_records.py) ----------------
     # A flag marks a slide whose H&E / stain pair needs registration (rotation, flip...) later.
@@ -2494,19 +2627,32 @@ class GroupDialog(tk.Toplevel):
     def _refresh(self):
         suffix, plan = self._plan()
         self.preview.delete("1.0", "end")
-        taken = {sl.name for sl in self.app.all_slides} - {sl.name for sl, _ in plan}
-        ok = False
+        if not suffix_ok(suffix):       # path separators, "..", commas, characters Windows forbids
+            self.preview.insert("end", t("dlg_bad_suffix") + "\n", "bad")
+            self.ok.state(["disabled"])
+            return
+        # file names are case-insensitive on Windows: compare them case-folded
+        taken = {sl.name.lower() for sl in self.app.all_slides} - {sl.name.lower() for sl, _ in plan}
+        counts = {}
+        for _, new in plan:
+            if new is not None:
+                counts[new.lower()] = counts.get(new.lower(), 0) + 1
+        ok = bad = False
         for sl, new in plan:
             if new is None:
                 self.preview.insert("end", f"{sl.name}\n   -> {t('dlg_no_block')}\n", "bad")
+                bad = True
+            elif counts[new.lower()] > 1:   # two selected files would end up with the same name
+                self.preview.insert("end", f"{sl.name}\n   -> {new}   {t('dlg_dup')}\n", "bad")
+                bad = True
             elif new == sl.name:
                 self.preview.insert("end", f"{sl.name}\n   -> {t('dlg_no_change')}\n", "same")
-            elif new in taken:
+            elif new.lower() in taken:
                 self.preview.insert("end", f"{sl.name}\n   -> {new}   {t('dlg_exists')}\n", "bad")
+                bad = True
             else:
                 self.preview.insert("end", f"{sl.name}\n   -> {new}\n")
                 ok = True
-        bad = any(n is None or n in taken for _, n in plan)
         if not suffix:
             self.preview.insert("end", t("dlg_clearing"), "same")
         self.ok.state(["!disabled"] if (ok and not bad) else ["disabled"])

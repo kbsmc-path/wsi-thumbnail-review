@@ -133,6 +133,12 @@ STRINGS = {
     "undo_rename": "이름 변경",
     "undo_failed": "되돌리기 실패",
     "undo_done": "되돌리기 완료: {n}개",
+    "undo_exists": "원래 위치에 같은 이름의 파일이 이미 있어 덮어쓰지 않았습니다: {path}",
+    "undo_left": "{n}개는 되돌리지 못했습니다. 원인을 해결한 뒤 Ctrl+Z로 다시 시도할 수 있습니다.",
+    "log_locked": "기록 파일을 열 수 없어 작업을 하지 않았습니다 (파일은 그대로입니다):\n{path}\n({err})\n\n"
+                  "이 파일이 다른 프로그램(Excel 등)에서 열려 있으면 닫고 다시 시도하세요.",
+    "worker_error": "예기치 않은 오류로 작업이 중간에 멈췄습니다: {err}\n"
+                    "(처리된 파일까지만 반영되었습니다. 자세한 내용은 wsi_review.log)",
 
     # ---- wsi_review: group rename ----
     "group_pick_first": "그룹으로 묶을 파일을 먼저 선택하세요 (Ctrl+클릭 또는 Space).",
@@ -152,6 +158,8 @@ STRINGS = {
     "dlg_no_change": "(변경 없음)",
     "dlg_exists": "[같은 이름이 이미 있음]",
     "dlg_no_block": "블록 항목이 없어 변경 불가",
+    "dlg_dup": "[선택한 다른 파일과 새 이름이 겹침]",
+    "dlg_bad_suffix": "표시에 쓸 수 없는 문자가 있습니다: 쉼표(,), 점 두 개(..), < > : \" / \\ | ? *",
     "dlg_clearing": "\n표시를 비웠으므로 기존 그룹 표시가 제거됩니다.\n",
 
     # ---- wsi_review: toolbar layout, folder check, help (v1.1 GUI) ----
@@ -421,6 +429,13 @@ STRINGS = {
     "undo_rename": "rename",
     "undo_failed": "Undo failed",
     "undo_done": "Undo complete: {n} file(s)",
+    "undo_exists": "a file with the original name already exists, not overwritten: {path}",
+    "undo_left": "{n} file(s) could not be restored. Fix the cause and press Ctrl+Z to try again.",
+    "log_locked": "The log file could not be opened, so nothing was done (all files are unchanged):\n"
+                  "{path}\n({err})\n\nIf this file is open in another program (Excel etc.), close it "
+                  "and try again.",
+    "worker_error": "The operation stopped on an unexpected error: {err}\n"
+                    "(only the files handled before it were changed - details in wsi_review.log)",
 
     # ---- wsi_review: group rename ----
     "group_pick_first": "Select the files to group first (Ctrl+Click or Space).",
@@ -442,6 +457,9 @@ STRINGS = {
     "dlg_no_change": "(no change)",
     "dlg_exists": "[name already taken]",
     "dlg_no_block": "no block field — cannot rename",
+    "dlg_dup": "[same new name as another selected file]",
+    "dlg_bad_suffix": "The tag contains characters that cannot be used: comma (,), two dots (..), "
+                      "< > : \" / \\ | ? *",
     "dlg_clearing": "\nThe tag is empty, so existing group tags will be removed.\n",
 
     # ---- wsi_review: toolbar layout, folder check, help (v1.1 GUI) ----

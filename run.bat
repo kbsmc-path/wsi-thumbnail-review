@@ -4,8 +4,11 @@ rem
 rem Needs Python 3.8+ (with tkinter) and Pillow. Python does NOT have to be on PATH: this file looks in
 rem   1. .venv next to this file      2. the "py" launcher      3. python / python3 on PATH
 rem   4. the usual install folders (python.org per-user / all-users, C:\Python3x, Anaconda / Miniconda)
-rem If Pillow is missing it offers to install it into a private .venv here (the system Python is not
-rem changed). With no Python at all it offers the stand-alone exe\WSI_Review_v*.exe instead.
+rem and uses the first Python 3.8+ that actually runs.
+rem If Pillow is missing it is installed once with "python -m pip" (not pip.exe - Smart App Control blocks
+rem unsigned launchers). With no Python at all it offers exe\WSI_Review_v*.exe if you built one.
+rem If Windows blocks this file ("Smart App Control blocked" / "Dangerous file extension from the web"),
+rem right-click the downloaded ZIP - Properties - Unblock and extract again - see README.
 rem
 rem Troubleshooting:  set WSI_REVIEW_CHECK=1  before running prints the Python that would be used and stops.
 setlocal EnableExtensions
@@ -49,25 +52,15 @@ if not errorlevel 1 set PY=%*
 exit /b
 
 :no_pillow
-echo.
-echo  The Pillow package is not installed for this Python:
-echo      %PY%
-echo.
-echo  It can be installed into a private ".venv" folder next to this file
-echo  (needs an internet connection; your system Python is not changed).
-echo.
-choice /c YN /m "  Install it now"
-if errorlevel 2 goto :pillow_manual
-%PY% -m venv .venv
-if errorlevel 1 goto :pillow_manual
-".venv\Scripts\python.exe" -m pip install --disable-pip-version-check -r requirements.txt
-if errorlevel 1 goto :pillow_manual
-set PY=".venv\Scripts\python.exe"
-goto :start
+echo  Pillow is not installed - installing it now (first run only) ...
+%PY% -m pip install --disable-pip-version-check -r requirements.txt
+if errorlevel 1 goto :pillow_failed
+%PY% -c "import PIL.ImageTk" >nul 2>nul
+if not errorlevel 1 goto :start
 
-:pillow_manual
+:pillow_failed
 echo.
-echo  Pillow was not installed. To install it yourself, run in this folder:
+echo  Pillow could not be installed. Check the internet connection or ask IT, then run in this folder:
 echo      %PY% -m pip install -r requirements.txt
 goto :offer_exe
 
@@ -92,7 +85,7 @@ set "EXE="
 for %%E in ("exe\WSI_Review_v*.exe" "WSI_Review_v*.exe") do set "EXE=%%~fE"
 if not defined EXE goto :no_exe
 echo.
-echo  The stand-alone program needs no Python:
+echo  A stand-alone build that needs no Python is here:
 echo      %EXE%
 echo.
 choice /c YN /m "  Start it now"
@@ -101,9 +94,6 @@ start "" "%EXE%" %*
 exit /b 0
 
 :no_exe
-echo.
-echo  Or use the stand-alone WSI_Review_v*.exe (no Python needed) from
-echo      https://github.com/kbsmc-path/wsi-thumbnail-review/releases
 echo.
 pause
 exit /b 1
