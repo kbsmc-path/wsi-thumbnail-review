@@ -554,6 +554,7 @@ class Slide:
         self.mid = None        # reduced copy (grid rendering)
         self.tk_small = None   # PhotoImage currently shown in the grid (None = not rendered)
         self.rendered_w = 0
+        self.txt_w = 0         # wrap width currently set on the label item
         self.selected = False
         self.error = None
         # canvas item ids
@@ -729,6 +730,9 @@ class App(tk.Tk):
         self._poll_job = None
         self.adj_open = True       # display-correction band (step 3) - shown until folded away
         self._size_job = None
+        self._settle_job = None
+        self._partial_layout = False   # True while only the cells near the viewport are placed
+        self._near_prev = []           # the slides placed by the last near-only layout
         self._folder_job = None
         self._dst_bad = True       # cached 'Move to' check for the button colour
         self._help = None
@@ -1449,12 +1453,14 @@ class App(tk.Tk):
 
     def _make_items(self, s):
         c = self.canvas
-        s.rect = c.create_rectangle(0, 0, 1, 1, fill=CELL_BG, outline=BG, width=3)
-        s.img = c.create_image(0, 0, anchor="n")
-        s.txt = c.create_text(0, 0, anchor="nw", fill="#ddd", font=("Segoe UI", 9), width=self.thumb_w)
+        s.rect = c.create_rectangle(0, 0, 1, 1, fill=CELL_BG, outline=BG, width=3, tags=("cellbox",))
+        s.img = c.create_image(0, 0, anchor="n", tags=("cellbox",))
+        s.txt = c.create_text(0, 0, anchor="nw", fill="#ddd", font=("Segoe UI", 9), width=self.thumb_w,
+                              tags=("celltxt",))
         s.err_txt = None
         s.tk_small = None
         s.rendered_w = 0
+        s.txt_w = self.thumb_w
 
     def _insert_slides(self, slides):
         """Put Slide objects back into the grid (after an undo or a failed move) without rescanning the
@@ -1487,7 +1493,7 @@ class App(tk.Tk):
         msg = f"ERROR\n{s.error}"
         if s.err_txt is None:
             s.err_txt = self.canvas.create_text(0, 0, anchor="center", fill="#ff7070", justify="center",
-                                                font=("Segoe UI", 9, "bold"))
+                                                font=("Segoe UI", 9, "bold"), tags=("cellerr",))
         self.canvas.coords(s.err_txt, x + self.cell_w / 2, y + 4 + self.img_h / 2)
         self.canvas.itemconfigure(s.err_txt, text=msg, width=self.thumb_w - 8)
 
@@ -1495,24 +1501,64 @@ class App(tk.Tk):
         r, col = divmod(i, self.cols)
         return PAD + col * (self.cell_w + PAD), PAD + r * (self.cell_h + PAD)
 
-    def _layout(self):
-        """Position every item for the current size / column count. Pure coordinate math -> instant."""
+    def _layout(self, restyle=True, near_only=False):
+        """Position every item for the current size / column count. Pure coordinate math -> instant.
+        `restyle=False` skips the colours / labels (a pure size change does not alter them).
+        `near_only` is the fast path while the size is being dragged: only the cells around the
+        viewport are placed, the rest is parked outside the scroll region, so the cost does not grow
+        with the folder. Boxes and images are parked with one cheap `move`; a label costs ~25 us
+        whatever is done to it (Tk lays the text out again), so labels are parked once and after
+        that only the few that were on screen are touched. _settle_layout places everything again
+        once the size stops changing."""
         c = self.canvas
+        wpath = c._w
         cw, ch, ih = self.cell_w, self.cell_h, self.img_h
-        for i, s in enumerate(self.slides):
-            x, y = self._cell_xy(i)
-            c.coords(s.rect, x, y, x + cw, y + ch)
-            c.coords(s.img, x + cw / 2, y + 4)
-            c.coords(s.txt, x + 4, y + 4 + ih + 2)
-            c.itemconfigure(s.txt, width=self.thumb_w)
-            if s.error:
-                self._layout_error_text(s)
         rows = (len(self.slides) + self.cols - 1) // self.cols
         c.configure(scrollregion=(0, 0, self.cols * (cw + PAD) + PAD, rows * (ch + PAD) + PAD))
+        if near_only:
+            if self.focus_idx is not None:
+                self._scroll_to(self.focus_idx)
+            lo, hi = self._visible_range(margin_rows=4)
+            cmd = [f"{wpath} move cellbox 0 200000", f"{wpath} coords cellerr -90000 -90000"]
+            if not self._partial_layout:             # first step: every label is still in place
+                cmd.append(f"{wpath} move celltxt 0 200000")
+            else:
+                keep = set(self.slides[lo:hi])
+                cmd += [f"{wpath} coords {s.txt} -90000 -90000" for s in self._near_prev
+                        if s not in keep and s.txt is not None]
+            self._near_prev = self.slides[lo:hi]
+            self._partial_layout = True
+        else:
+            lo, hi = 0, len(self.slides)
+            cmd = []
+        # One Tcl script for the whole grid instead of several tkinter calls per slide. The label's
+        # wrap width is NOT set here: re-wrapping every file name was most of the cost of a size
+        # change, so _render_visible does it for the cells near the viewport only.
+        for i in range(lo, hi):
+            s = self.slides[i]
+            x, y = self._cell_xy(i)
+            cmd.append(f"{wpath} coords {s.rect} {x} {y} {x + cw} {y + ch};"
+                       f"{wpath} coords {s.img} {x + cw / 2} {y + 4};"
+                       f"{wpath} coords {s.txt} {x + 4} {y + 4 + ih + 2}")
+        if cmd:
+            self.tk.eval(";".join(cmd))
+        for i in range(lo, hi):
+            s = self.slides[i]
+            if s.error:
+                self._layout_error_text(s)
+        if not near_only:
+            self._partial_layout = False
         self._layout_reg_badges()
-        self._style_all()
+        if restyle:
+            self._style_all()
         self._schedule_render(0)
         self._draw_empty_msg()
+
+    def _settle_layout(self):
+        """The size stopped changing: place the cells the near-only passes skipped."""
+        self._settle_job = None
+        if self._partial_layout and self.canvas.winfo_exists():
+            self._layout(restyle=False)
 
     def _on_canvas_resize(self, e):
         cols = max(1, (e.width - PAD) // (self.cell_w + PAD))
@@ -1556,14 +1602,12 @@ class App(tk.Tk):
         if not self.canvas.winfo_exists():
             return
         self.cols = max(1, (self.canvas.winfo_width() - PAD) // (self.cell_w + PAD))
-        for s in self.all_slides:                   # drop old-size images; visible ones re-render right away
-            s.tk_small = None
-            s.rendered_w = 0
-            if s.img is not None:
-                self.canvas.itemconfigure(s.img, image="")
-        self._layout()
-        if self.focus_idx is not None:
-            self._scroll_to(self.focus_idx)
+        # The old-size images stay on screen until their replacement is ready (rendered_w no longer
+        # matches, so _render_visible redoes them) - no blank flash, and nothing to wipe per slide.
+        self._layout(restyle=False, near_only=True)
+        if self._settle_job is not None:
+            self.after_cancel(self._settle_job)
+        self._settle_job = self.after(200, self._settle_layout)
         self._render_visible()
         self.status.set(t("size_status", px=self.thumb_w, cols=self.cols))
 
@@ -1646,11 +1690,21 @@ class App(tk.Tk):
                 s.tk_small = None
                 s.rendered_w = 0
                 self.canvas.itemconfigure(s.img, image="")
-        for i in range(a, b):
+        # Cells on screen first, then the margin rows. Work in slices of ~12 ms and hand control back
+        # to Tk in between, so dragging the size slider or scrolling never waits for a whole screen.
+        a0, b0 = self._visible_range(margin_rows=0)
+        deadline = time.perf_counter() + 0.012
+        for i in (*range(a0, b0), *range(a, a0), *range(b0, b)):
             s = self.slides[i]
+            if s.txt_w != self.thumb_w:             # label wrap width, see _layout
+                self.canvas.itemconfigure(s.txt, width=self.thumb_w)
+                s.txt_w = self.thumb_w
             if s.thumb is None or s.rendered_w == self.thumb_w:
                 continue
             self._render_cell(s)
+            if time.perf_counter() > deadline:
+                self._render_job = self.after(1, self._render_visible)
+                return
 
     def _render_cell(self, s):
         src = s.mid if s.mid is not None else s.thumb
