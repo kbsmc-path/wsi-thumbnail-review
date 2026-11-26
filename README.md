@@ -28,11 +28,16 @@ multi-GB slides appear in about a second, and the thumbnails are cached for inst
 
 ## Install and run
 
-Requires **Python 3.8+** with tkinter (included in the python.org installer) and **Pillow**. The program is
-distributed as source only — there is no `.exe` download (see [Build your own .exe](#build-your-own-exe-optional)
-for why).
+Two ways to run it on Windows:
 
-**Windows, without git**
+- **Stand-alone exe (no Python needed)** — download `WSI_Review_v<version>.exe` from the
+  [Releases](https://github.com/kbsmc-path/wsi-thumbnail-review/releases) page and double-click it. The exe is
+  **not code-signed**: on a PC where Windows Smart App Control is on it is blocked and cannot be allowed by the user —
+  use the source route below on such PCs (see [About the .exe](#about-the-exe)).
+- **From source with `run.bat`** — requires **Python 3.8+** with tkinter (included in the python.org installer) and
+  **Pillow**; works with Smart App Control on.
+
+**Windows, from source without git**
 
 1. Install Python 3.8+ from [python.org](https://www.python.org/downloads/).
 2. On this page: **Code › Download ZIP**.
@@ -122,7 +127,10 @@ Notes
 SVS 파일에 들어 있는 작은 썸네일만 읽어 수백 장의 슬라이드를 빠르게 훑어보고, 중복되거나 정렬이 맞지 않는
 연속절편을 다른 폴더로 옮기거나(Ctrl+Z로 취소), H&E–면역염색 짝을 그룹으로 묶는 도구입니다.
 
-- **설치와 실행** (Windows): exe 파일은 배포하지 않고 소스로만 제공합니다.
+- **exe로 실행** (Python 설치 불필요): [Releases](https://github.com/kbsmc-path/wsi-thumbnail-review/releases)에서
+  `WSI_Review_v<버전>.exe`를 받아 더블클릭합니다. 이 exe는 **코드 서명이 없어서** 스마트 앱 컨트롤이 켜진 PC에서는
+  차단되며 사용자가 허용할 수 없습니다. 그런 PC에서는 아래의 소스 실행 방법을 쓰세요.
+- **소스로 설치와 실행** (Windows, 스마트 앱 컨트롤이 켜져 있어도 가능):
   1. [python.org](https://www.python.org/downloads/)에서 Python 3.8 이상 설치
   2. 이 페이지에서 **Code › Download ZIP**으로 받기
   3. **압축을 풀기 전에** ZIP 우클릭 › **속성** › 아래쪽 **차단 해제** 체크 › **확인**
@@ -144,11 +152,12 @@ SVS 파일에 들어 있는 작은 썸네일만 읽어 수백 장의 슬라이�
 - **내보내기 (Ctrl+E)**: 원본 폴더에 `review_export_<시각>.xlsx`(시트: slides / excluded / registration / renames / info)와
   시트별 CSV를 만듭니다. excluded는 이동 폴더의 `move_log.csv`에서 되돌린 것을 뺀 목록이라 이전 작업도 포함됩니다.
 
-## Build your own .exe (optional)
+## About the .exe
 
-No `.exe` is published: it would not be code-signed, and Windows Smart App Control blocks unsigned executables it does not know
-(whether built as console or windowed) with no way for the user to allow them. For PCs where Smart App Control is
-off, you can build one yourself:
+The `.exe` attached to each release is **not code-signed**. Windows Smart App Control blocks unsigned executables it
+does not know (whether built as console or windowed) with no way for the user to allow them, so the exe only runs on
+PCs where Smart App Control is off (for example most centrally managed PCs); elsewhere run from source. To build it
+yourself:
 
 ```bat
 python -m pip install pyinstaller pillow

@@ -6,7 +6,7 @@ __pycache__/
 # logs written next to the program
 *.log
 
-# build output (python build_exe.py) - no .exe is published, see README
+# build output (python build_exe.py) - the .exe is attached to the GitHub Release, not committed
 exe/
 build_tmp/
 *.spec
